@@ -784,6 +784,10 @@ def gradle(parser, xml_parent, data):
         root directory, specify the path (relative to the module
         root) here, such as ${workspace}/parent/ instead of just
         ${workspace}.
+    :arg bool use-workspace-as-home: If true, Gradle will write to $HOME/.gradle
+     by for GRADLE_USER_HOME. For a multi-executor slave in Jenkins,
+      setting the environment variable localized files to the workspace
+      avoid collisions accessing gradle cache.
 
     Example:
 
@@ -806,6 +810,8 @@ def gradle(parser, xml_parent, data):
     XML.SubElement(gradle, 'switches').text = switch_string
     XML.SubElement(gradle, 'fromRootBuildScriptDir').text = str(data.get(
         'use-root-dir', False)).lower()
+    XML.SubElement(gradle, 'useWorkspaceAsHome').text = str(data.get(
+        'use-workspace-as-home', False)).lower()
 
 
 def _groovy_common_scriptSource(data):
