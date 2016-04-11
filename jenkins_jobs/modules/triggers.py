@@ -29,20 +29,18 @@ Example::
       - timed: '@daily'
 """
 
-
-import six
-import xml.etree.ElementTree as XML
-import jenkins_jobs.modules.base
-from jenkins_jobs.modules import hudson_model
-from jenkins_jobs.errors import (InvalidAttributeError,
-                                 JenkinsJobsException,
-                                 MissingAttributeError)
+from collections import OrderedDict
 import logging
 import re
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
+import xml.etree.ElementTree as XML
+
+import six
+
+from jenkins_jobs.errors import InvalidAttributeError
+from jenkins_jobs.errors import JenkinsJobsException
+from jenkins_jobs.errors import MissingAttributeError
+import jenkins_jobs.modules.base
+from jenkins_jobs.modules import hudson_model
 
 logger = logging.getLogger(str(__name__))
 
@@ -82,7 +80,7 @@ def gerrit_handle_legacy_configuration(data):
         'skipVote',
     ])
 
-    for project in data['projects']:
+    for project in data.get('projects', []):
         convert_dict(project, [
             'projectCompareType',
             'projectPattern',
@@ -445,7 +443,7 @@ def gerrit(parser, xml_parent, data):
 
     gerrit_handle_legacy_configuration(data)
 
-    projects = data['projects']
+    projects = data.get('projects', [])
     gtrig = XML.SubElement(xml_parent,
                            'com.sonyericsson.hudson.plugins.gerrit.trigger.'
                            'hudsontrigger.GerritTrigger')
@@ -456,7 +454,8 @@ def gerrit(parser, xml_parent, data):
                                'com.sonyericsson.hudson.plugins.gerrit.'
                                'trigger.hudsontrigger.data.GerritProject')
         XML.SubElement(gproj, 'compareType').text = get_compare_type(
-            'project-compare-type', project['project-compare-type'])
+            'project-compare-type', project.get(
+                'project-compare-type', 'PLAIN'))
         XML.SubElement(gproj, 'pattern').text = project['project-pattern']
 
         branches = XML.SubElement(gproj, 'branches')
@@ -474,14 +473,16 @@ def gerrit(parser, xml_parent, data):
             logger.warn(warning)
         if not project_branches:
             project_branches = [
-                {'branch-compare-type': project['branch-compare-type'],
+                {'branch-compare-type': project.get(
+                    'branch-compare-type', 'PLAIN'),
                  'branch-pattern': project['branch-pattern']}]
         for branch in project_branches:
             gbranch = XML.SubElement(
                 branches, 'com.sonyericsson.hudson.plugins.'
                 'gerrit.trigger.hudsontrigger.data.Branch')
             XML.SubElement(gbranch, 'compareType').text = get_compare_type(
-                'branch-compare-type', branch['branch-compare-type'])
+                'branch-compare-type', branch.get(
+                    'branch-compare-type', 'PLAIN'))
             XML.SubElement(gbranch, 'pattern').text = branch['branch-pattern']
 
         project_file_paths = project.get('file-paths', [])
@@ -1047,6 +1048,7 @@ def gitlab(parser, xml_parent, data):
         merge requests (default: True)
     :arg bool add-vote-merge-request: Vote added to note with build status
         on merge requests (default: True)
+    :arg bool add-ci-message: Add CI build status (default: False)
     :arg bool allow-all-branches: Allow all branches (Ignoring Filtered
         Branches) (default: False)
     :arg list include-branches: Defined list of branches to include
@@ -1075,6 +1077,7 @@ def gitlab(parser, xml_parent, data):
         ('set-build-description', 'setBuildDescription', True),
         ('add-note-merge-request', 'addNoteOnMergeRequest', True),
         ('add-vote-merge-request', 'addVoteOnMergeRequest', True),
+        ('add-ci-message', 'addCiMessage', False),
         ('allow-all-branches', 'allowAllBranches', False),
     )
     list_mapping = (
@@ -1200,7 +1203,7 @@ def reverse(parser, xml_parent, data):
         jobs
 
     threshold = XML.SubElement(reserveBuildTrigger, 'threshold')
-    result = data.get('result').upper()
+    result = str(data.get('result', 'success')).upper()
     if result not in supported_thresholds:
         raise jenkins_jobs.errors.JenkinsJobsException(
             "Choice should be one of the following options: %s." %
@@ -1467,7 +1470,7 @@ def script(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: /../../tests/triggers/fixtures/script.yaml
+    .. literalinclude:: /../../tests/triggers/fixtures/script001.yaml
     """
     data = data if data else {}
     st = XML.SubElement(

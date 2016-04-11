@@ -36,21 +36,21 @@ Example::
 
 """
 
-
+import logging
 import xml.etree.ElementTree as XML
+
+from jenkins_jobs.errors import InvalidAttributeError
+from jenkins_jobs.errors import JenkinsJobsException
+from jenkins_jobs.errors import MissingAttributeError
 import jenkins_jobs.modules.base
-from jenkins_jobs.modules import hudson_model
 from jenkins_jobs.modules.helpers import cloudformation_init
 from jenkins_jobs.modules.helpers import cloudformation_region_dict
 from jenkins_jobs.modules.helpers import cloudformation_stack
 from jenkins_jobs.modules.helpers import config_file_provider_builder
 from jenkins_jobs.modules.helpers import config_file_provider_settings
-from jenkins_jobs.modules.helpers import copyartifact_build_selector
 from jenkins_jobs.modules.helpers import convert_mapping_to_xml
-from jenkins_jobs.errors import (JenkinsJobsException,
-                                 MissingAttributeError,
-                                 InvalidAttributeError)
-import logging
+from jenkins_jobs.modules.helpers import copyartifact_build_selector
+from jenkins_jobs.modules import hudson_model
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ def copyartifact(parser, xml_parent, data):
             * **permalink**
             * **workspace-latest**
             * **build-param**
+            * **downstream-build**
 
     :arg str build-number: specifies the build number to get when
         when specific-build is specified as which-build
@@ -135,6 +136,11 @@ def copyartifact(parser, xml_parent, data):
         last successful build when upstream-build is specified as which-build
     :arg string param: specifies to use a build parameter to get the build when
         build-param is specified as which-build
+    :arg str upstream-project-name: specifies the project name of downstream
+        when downstream-build is specified as which-build
+    :arg str upstream-build-number: specifies the number of the build to
+        find its downstream build when downstream-build is specified as
+        which-build
     :arg string parameter-filters: Filter matching jobs based on these
         parameters (optional)
 
@@ -765,6 +771,38 @@ def artifact_resolver(parser, xml_parent, data):
     XML.SubElement(ar, 'releaseUpdatePolicy').text = 'never'
     XML.SubElement(ar, 'snapshotChecksumPolicy').text = 'warn'
     XML.SubElement(ar, 'releaseChecksumPolicy').text = 'warn'
+
+
+def doxygen(parser, xml_parent, data):
+    """yaml: doxygen
+    Builds doxygen HTML documentation. Requires the Jenkins
+    :jenkins-wiki:`Doxygen plugin <Doxygen+Plugin>`.
+
+    :arg str doxyfile: The doxyfile path (required)
+    :arg str install: The doxygen installation to use (required)
+    :arg bool ignore-failure: Keep executing build even on doxygen generation
+        failure (default false)
+    :arg bool unstable-warning: Mark the build as unstable if warnings are
+        generated (default false)
+
+    Example:
+
+    .. literalinclude:: /../../tests/builders/fixtures/doxygen001.yaml
+       :language: yaml
+
+    """
+    doxygen = XML.SubElement(xml_parent,
+                             'hudson.plugins.doxygen.DoxygenBuilder')
+    try:
+        XML.SubElement(doxygen, 'doxyfilePath').text = str(data['doxyfile'])
+        XML.SubElement(doxygen, 'installationName').text = str(data['install'])
+    except KeyError as e:
+        raise MissingAttributeError(e.arg[0])
+
+    XML.SubElement(doxygen, 'continueOnBuildFailure').text = str(
+        data.get('ignore-failure', False)).lower()
+    XML.SubElement(doxygen, 'unstableIfWarnings').text = str(
+        data.get('unstable-warning', False)).lower()
 
 
 def gradle(parser, xml_parent, data):
@@ -1537,11 +1575,16 @@ def multijob(parser, xml_parent, data):
               to the other job (optional)
             * **predefined-parameters** (`str`) -- Pass predefined
               parameters to the other job (optional)
+            * **abort-all-job** (`bool`) -- Kill allsubs job and the phase job,
+              if this subjob is killed (default false)
             * **enable-condition** (`str`) -- Condition to run the
               job in groovy script format (optional)
             * **kill-phase-on** (`str`) -- Stop the phase execution
               on specific job status. Can be 'FAILURE', 'UNSTABLE',
               'NEVER'. (optional)
+            * **restrict-matrix-project** (`str`) -- Filter that
+              restricts the subset of the combinations that the
+              downstream project will run (optional)
 
     Example:
 
@@ -1614,6 +1657,18 @@ def multijob(parser, xml_parent, data):
                                    'PredefinedBuildParameters')
             properties = XML.SubElement(param, 'properties')
             properties.text = predefined_parameters
+
+        # Abort all other job
+        abortAllJob = str(project.get('abort-all-job', False)).lower()
+        XML.SubElement(phaseJob, 'abortAllJob').text = abortAllJob
+
+        # Restrict matrix jobs to a subset
+        if project.get('restrict-matrix-project') is not None:
+            subset = XML.SubElement(
+                configs, 'hudson.plugins.parameterizedtrigger.'
+                         'matrix.MatrixSubsetBuildParameters')
+            XML.SubElement(
+                subset, 'filter').text = project['restrict-matrix-project']
 
         # Enable Condition
         enable_condition = project.get('enable-condition')
@@ -1951,6 +2006,32 @@ def shining_panda(parser, xml_parent, data):
     XML.SubElement(t, 'command').text = data.get("command", "")
     ignore_exit_code = data.get('ignore-exit-code', False)
     XML.SubElement(t, 'ignoreExitCode').text = str(ignore_exit_code).lower()
+
+
+def tox(parser, xml_parent, data):
+    """yaml: tox
+    Use tox to build a multi-configuration project. Requires the Jenkins
+    :jenkins-wiki:`ShiningPanda plugin <ShiningPanda+Plugin>`.
+
+    :arg str ini: The TOX configuration file path (default: tox.ini)
+    :arg bool recreate: If true, create a new environment each time (default:
+        false)
+    :arg str toxenv-pattern: The pattern used to build the TOXENV environment
+        variable. (optional)
+
+    Example:
+
+    .. literalinclude:: /../../tests/builders/fixtures/tox001.yaml
+       :language: yaml
+    """
+    pluginelement = 'jenkins.plugins.shiningpanda.builders.ToxBuilder'
+    t = XML.SubElement(xml_parent, pluginelement)
+    XML.SubElement(t, 'toxIni').text = data.get('ini', 'tox.ini')
+    XML.SubElement(t, 'recreate').text = str(
+        data.get('recreate', False)).lower()
+    pattern = data.get('toxenv-pattern')
+    if pattern:
+        XML.SubElement(t, 'toxenvPattern').text = pattern
 
 
 def managed_script(parser, xml_parent, data):
@@ -2413,8 +2494,8 @@ def openshift_build_verify(parser, xml_parent, data):
     provided buildConfig key provided; once the list of builds are obtained,
     the state of the latest build is inspected for up to a minute to see if
     it has completed successfully.
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2426,6 +2507,8 @@ def openshift_build_verify(parser, xml_parent, data):
         "namespace", that is the value you want to put here. (default 'test')
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2440,14 +2523,15 @@ def openshift_build_verify(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftBuildVerifier')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftBuildVerifier')
     mapping = [
         # option, xml name, default value
         ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
         ("bld-cfg", 'bldCfg', 'frontend'),
         ("namespace", 'namespace', 'test'),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2456,8 +2540,8 @@ def openshift_build_verify(parser, xml_parent, data):
 def openshift_builder(parser, xml_parent, data):
     """yaml: openshift-builder
     Perform builds in OpenShift for the job.
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2469,8 +2553,17 @@ def openshift_builder(parser, xml_parent, data):
         "namespace", that is the value you want to put here. (default 'test')
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
-    :arg bool follow-log: The equivalent of using the --follow option with the
-        `oc start-build` command. (default true)
+    :arg str commit-ID: The value here is what you supply with the
+        --commit option when invoking the
+        OpenShift `oc start-build` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+    :arg str build-name: TThe value here is what you supply with the
+        --from-build option when invoking the
+        OpenShift `oc start-build` command. (optional)
+    :arg str show-build-logs: Indicates whether the build logs get dumped
+        to the console of the Jenkins build. (default 'false')
+
 
     Full Example:
 
@@ -2483,8 +2576,8 @@ def openshift_builder(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftBuilder')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftBuilder')
 
     mapping = [
         # option, xml name, default value
@@ -2492,7 +2585,58 @@ def openshift_builder(parser, xml_parent, data):
         ("bld-cfg", 'bldCfg', 'frontend'),
         ("namespace", 'namespace', 'test'),
         ("auth-token", 'authToken', ''),
-        ("follow-log", 'followLog', 'true'),
+        ("commit-ID", 'commitID', ''),
+        ("verbose", 'verbose', 'false'),
+        ("build-name", 'buildName', ''),
+        ("show-build-logs", 'showBuildLogs', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
+
+
+def openshift_creator(parser, xml_parent, data):
+    """yaml: openshift-creator
+    Performs the equivalent of an oc create command invocation;
+    this build step takes in the provided JSON or YAML text, and if it
+    conforms to OpenShift schema, creates whichever
+    OpenShift resources are specified.
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
+
+    :arg str api-url: this would be the value you specify if you leverage the
+        --server option on the OpenShift `oc` command.
+        (default '\https://openshift.default.svc.cluster.local')
+    :arg str jsonyaml: The JSON or YAML formatted text that conforms to
+        the schema for defining the various OpenShift resources. (optional)
+    :arg str namespace: If you run `oc get bc` for the project listed in
+        "namespace", that is the value you want to put here. (default 'test')
+    :arg str auth-token: The value here is what you supply with the --token
+        option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/builders/fixtures/openshift-creator001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/builders/fixtures/openshift-creator002.yaml
+       :language: yaml
+    """
+    osb = XML.SubElement(xml_parent,
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftCreator')
+    mapping = [
+        # option, xml name, default value
+        ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
+        ("jsonyaml", 'jsonyaml', ''),
+        ("namespace", 'namespace', 'test'),
+        ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2503,8 +2647,8 @@ def openshift_dep_verify(parser, xml_parent, data):
     Determines whether the expected set of DeploymentConfig's,
     ReplicationController's, and active replicas are present based on prior
     use of the scaler (2) and deployer (3) steps
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`._
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2518,6 +2662,8 @@ def openshift_dep_verify(parser, xml_parent, data):
         of pods you want started for the deployment. (default 0)
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2532,8 +2678,7 @@ def openshift_dep_verify(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.'
+                         'com.openshift.jenkins.plugins.pipeline.'
                          'OpenShiftDeploymentVerifier')
 
     mapping = [
@@ -2543,6 +2688,7 @@ def openshift_dep_verify(parser, xml_parent, data):
         ("namespace", 'namespace', 'test'),
         ("replica-count", 'replicaCount', 0),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2551,8 +2697,8 @@ def openshift_dep_verify(parser, xml_parent, data):
 def openshift_deployer(parser, xml_parent, data):
     """yaml: openshift-deployer
     Start a deployment in OpenShift for the job.
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2564,6 +2710,8 @@ def openshift_deployer(parser, xml_parent, data):
         "namespace", that is the value you want to put here. (default 'test')
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2578,8 +2726,8 @@ def openshift_deployer(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftDeployer')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftDeployer')
 
     mapping = [
         # option, xml name, default value
@@ -2587,6 +2735,7 @@ def openshift_deployer(parser, xml_parent, data):
         ("dep-cfg", 'depCfg', 'frontend'),
         ("namespace", 'namespace', 'test'),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2596,8 +2745,8 @@ def openshift_img_tagger(parser, xml_parent, data):
     """yaml: openshift-img-tagger
     Performs the equivalent of an oc tag command invocation in order to
     manipulate tags for images in OpenShift ImageStream's
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2612,6 +2761,8 @@ def openshift_img_tagger(parser, xml_parent, data):
         "namespace", that is the value you want to put here. (default 'test')
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2626,8 +2777,8 @@ def openshift_img_tagger(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftImageTagger')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftImageTagger')
 
     mapping = [
         # option, xml name, default value
@@ -2636,6 +2787,7 @@ def openshift_img_tagger(parser, xml_parent, data):
         ("prod-tag", 'prodTag', 'origin-nodejs-sample:prod'),
         ("namespace", 'namespace', 'test'),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2644,8 +2796,8 @@ def openshift_img_tagger(parser, xml_parent, data):
 def openshift_scaler(parser, xml_parent, data):
     """yaml: openshift-scaler
     Scale deployments in OpenShift for the job.
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2659,6 +2811,8 @@ def openshift_scaler(parser, xml_parent, data):
         of pods you want started for the deployment. (default 0)
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2671,8 +2825,8 @@ def openshift_scaler(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftScaler')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftScaler')
 
     mapping = [
         # option, xml name, default value
@@ -2681,6 +2835,7 @@ def openshift_scaler(parser, xml_parent, data):
         ("namespace", 'namespace', 'test'),
         ("replica-count", 'replicaCount', 0),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2689,8 +2844,8 @@ def openshift_scaler(parser, xml_parent, data):
 def openshift_svc_verify(parser, xml_parent, data):
     """yaml: openshift-svc-verify
     Verify a service is up in OpenShift for the job.
-    Requires the Jenkins `OpenShift3 Plugin
-    <https://github.com/gabemontero/openshift-jenkins-buildutils/>`_
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
 
     :arg str api-url: this would be the value you specify if you leverage the
         --server option on the OpenShift `oc` command.
@@ -2701,6 +2856,8 @@ def openshift_svc_verify(parser, xml_parent, data):
         "namespace", that is the value you want to put here. (default 'test')
     :arg str auth-token: The value here is what you supply with the --token
         option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
 
     Full Example:
 
@@ -2715,8 +2872,8 @@ def openshift_svc_verify(parser, xml_parent, data):
        :language: yaml
     """
     osb = XML.SubElement(xml_parent,
-                         'com.openshift.'
-                         'openshiftjenkinsbuildutils.OpenShiftServiceVerifier')
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftServiceVerifier')
 
     mapping = [
         # option, xml name, default value
@@ -2724,6 +2881,7 @@ def openshift_svc_verify(parser, xml_parent, data):
         ("svc-name", 'svcName', 'frontend'),
         ("namespace", 'namespace', 'test'),
         ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
     ]
 
     convert_mapping_to_xml(osb, data, mapping)
@@ -2753,3 +2911,31 @@ def runscope(parser, xml_parent, data):
     except KeyError as e:
         raise MissingAttributeError(e.args[0])
     XML.SubElement(runscope, 'timeout').text = str(data.get('timeout', '60'))
+
+
+def description_setter(parser, xml_parent, data):
+    """yaml: description-setter
+    This plugin sets the description for each build,
+    based upon a RegEx test of the build log file.
+
+    Requires the Jenkins :jenkins-wiki:`Description Setter Plugin
+    <Description+Setter+Plugin>`.
+
+    :arg str regexp: A RegEx which is used to scan the build log file
+        (default '')
+    :arg str description: The description to set on the build (optional)
+
+    Example:
+
+    .. literalinclude::
+        /../../tests/builders/fixtures/description-setter001.yaml
+       :language: yaml
+    """
+
+    descriptionsetter = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.descriptionsetter.DescriptionSetterBuilder')
+    XML.SubElement(descriptionsetter, 'regexp').text = data.get('regexp', '')
+    if 'description' in data:
+        XML.SubElement(descriptionsetter, 'description').text = data[
+            'description']

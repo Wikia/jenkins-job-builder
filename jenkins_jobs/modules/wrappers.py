@@ -23,19 +23,20 @@ Wrappers can alter the way the build is run as well as the build output.
 """
 
 import logging
-import xml.etree.ElementTree as XML
 import pkg_resources
+import xml.etree.ElementTree as XML
+
+from jenkins_jobs.errors import InvalidAttributeError
+from jenkins_jobs.errors import JenkinsJobsException
+from jenkins_jobs.errors import MissingAttributeError
 import jenkins_jobs.modules.base
-from jenkins_jobs.errors import (JenkinsJobsException,
-                                 InvalidAttributeError,
-                                 MissingAttributeError)
 from jenkins_jobs.modules.builders import create_builders
-from jenkins_jobs.modules.helpers import config_file_provider_builder
 from jenkins_jobs.modules.helpers import artifactory_common_details
-from jenkins_jobs.modules.helpers import artifactory_repository
 from jenkins_jobs.modules.helpers import artifactory_deployment_patterns
 from jenkins_jobs.modules.helpers import artifactory_env_vars_patterns
 from jenkins_jobs.modules.helpers import artifactory_optional_props
+from jenkins_jobs.modules.helpers import artifactory_repository
+from jenkins_jobs.modules.helpers import config_file_provider_builder
 
 logger = logging.getLogger(__name__)
 
@@ -651,23 +652,25 @@ def copy_to_slave(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Copy To Slave Plugin
     <Copy+To+Slave+Plugin>`.
 
-    :arg list includes: list of file patterns to copy
-    :arg list excludes: list of file patterns to exclude
-    :arg bool flatten: flatten directory structure
-    :arg str relative-to: base location of includes/excludes,
-                          must be userContent ($JENKINS_HOME/userContent)
-                          home ($JENKINS_HOME) or workspace
+    :arg list includes: list of file patterns to copy (optional)
+    :arg list excludes: list of file patterns to exclude (optional)
+    :arg bool flatten: flatten directory structure (Default: False)
+    :arg str relative-to: base location of includes/excludes, must be home
+        ($JENKINS_HOME), somewhereElse ($JENKINS_HOME/copyToSlave),
+        userContent ($JENKINS_HOME/userContent) or workspace
+        (Default: userContent)
     :arg bool include-ant-excludes: exclude ant's default excludes
+        (Default: False)
 
-    Example::
+    Minimal Example:
 
-      wrappers:
-        - copy-to-slave:
-            includes:
-              - file1
-              - file2*.txt
-            excludes:
-              - file2bad.txt
+    .. literalinclude::  /../../tests/wrappers/fixtures/copy-to-slave001.yaml
+       :language: yaml
+
+    Full Example:
+
+    .. literalinclude::  /../../tests/wrappers/fixtures/copy-to-slave002.yaml
+       :language: yaml
     """
     p = 'com.michelin.cio.hudson.plugins.copytoslave.CopyToSlaveBuildWrapper'
     cs = XML.SubElement(xml_parent, p)
@@ -680,7 +683,7 @@ def copy_to_slave(parser, xml_parent, data):
         str(data.get('include-ant-excludes', False)).lower()
 
     rel = str(data.get('relative-to', 'userContent'))
-    opt = ('userContent', 'home', 'workspace')
+    opt = ('home', 'somewhereElse', 'userContent', 'workspace')
     if rel not in opt:
         raise ValueError('relative-to must be one of %r' % opt)
     XML.SubElement(cs, 'relativeTo').text = rel
@@ -803,6 +806,12 @@ def env_script(parser, xml_parent, data):
     <Environment+Script+Plugin>`.
 
     :arg script-content: The script to run (default: '')
+    :arg str script-type: The script type.
+
+        :script-types supported:
+            * **unix-script** (default)
+            * **power-shell**
+            * **batch-script**
     :arg only-run-on-parent: Only applicable for Matrix Jobs. If true, run only
       on the matrix parent job (default: false)
 
@@ -813,6 +822,18 @@ def env_script(parser, xml_parent, data):
     """
     el = XML.SubElement(xml_parent, 'com.lookout.jenkins.EnvironmentScript')
     XML.SubElement(el, 'script').text = data.get('script-content', '')
+
+    valid_script_types = {
+        'unix-script': 'unixScript',
+        'power-shell': 'powerShell',
+        'batch-script': 'batchScript',
+    }
+    script_type = data.get('script-type', 'unix-script')
+    if script_type not in valid_script_types:
+        raise InvalidAttributeError('script-type', script_type,
+                                    valid_script_types)
+    XML.SubElement(el, 'scriptType').text = valid_script_types[script_type]
+
     only_on_parent = str(data.get('only-run-on-parent', False)).lower()
     XML.SubElement(el, 'onlyRunOnParent').text = only_on_parent
 
@@ -1381,10 +1402,17 @@ def credentials_binding(parser, xml_parent, data):
             :language: yaml
 
     """
-    entry_xml = XML.SubElement(
-        xml_parent,
+    entry_xml = xml_parent.find(
         'org.jenkinsci.plugins.credentialsbinding.impl.SecretBuildWrapper')
-    bindings_xml = XML.SubElement(entry_xml, 'bindings')
+    if entry_xml is None:
+        entry_xml = XML.SubElement(
+            xml_parent,
+            'org.jenkinsci.plugins.credentialsbinding.impl.SecretBuildWrapper')
+
+    bindings_xml = entry_xml.find('bindings')
+    if bindings_xml is None:
+        bindings_xml = XML.SubElement(entry_xml, 'bindings')
+
     binding_types = {
         'zip-file': 'org.jenkinsci.plugins.credentialsbinding.impl.'
                     'ZipFileBinding',
@@ -1675,7 +1703,7 @@ def android_emulator(parser, xml_parent, data):
 
 
 def artifactory_maven(parser, xml_parent, data):
-    """ yaml: artifactory-maven
+    """yaml: artifactory-maven
     Wrapper for non-Maven projects. Requires the
     :jenkins-wiki:`Artifactory Plugin <Artifactory+Plugin>`
 
@@ -1720,7 +1748,7 @@ def artifactory_maven(parser, xml_parent, data):
 
 
 def artifactory_generic(parser, xml_parent, data):
-    """ yaml: artifactory-generic
+    """yaml: artifactory-generic
     Wrapper for non-Maven projects. Requires the
     :jenkins-wiki:`Artifactory Plugin <Artifactory+Plugin>`
 
@@ -1797,7 +1825,7 @@ def artifactory_generic(parser, xml_parent, data):
 
 
 def artifactory_maven_freestyle(parser, xml_parent, data):
-    """ yaml: artifactory-maven-freestyle
+    """yaml: artifactory-maven-freestyle
     Wrapper for Free Stype projects. Requires the Artifactory plugin.
     Requires :jenkins-wiki:`Artifactory Plugin <Artifactory+Plugin>`
 

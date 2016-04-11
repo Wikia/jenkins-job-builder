@@ -25,10 +25,23 @@ the build is complete.
   :Entry Point: jenkins_jobs.publishers
 """
 
-
+import logging
+import pkg_resources
+import random
+import sys
 import xml.etree.ElementTree as XML
+
+import six
+
+from jenkins_jobs.errors import InvalidAttributeError
+from jenkins_jobs.errors import JenkinsJobsException
+from jenkins_jobs.errors import MissingAttributeError
 import jenkins_jobs.modules.base
 from jenkins_jobs.modules import hudson_model
+from jenkins_jobs.modules.helpers import artifactory_common_details
+from jenkins_jobs.modules.helpers import artifactory_deployment_patterns
+from jenkins_jobs.modules.helpers import artifactory_env_vars_patterns
+from jenkins_jobs.modules.helpers import artifactory_optional_props
 from jenkins_jobs.modules.helpers import build_trends_publisher
 from jenkins_jobs.modules.helpers import cloudformation_init
 from jenkins_jobs.modules.helpers import cloudformation_region_dict
@@ -36,18 +49,7 @@ from jenkins_jobs.modules.helpers import cloudformation_stack
 from jenkins_jobs.modules.helpers import config_file_provider_settings
 from jenkins_jobs.modules.helpers import findbugs_settings
 from jenkins_jobs.modules.helpers import get_value_from_yaml_or_config_file
-from jenkins_jobs.modules.helpers import artifactory_deployment_patterns
-from jenkins_jobs.modules.helpers import artifactory_env_vars_patterns
-from jenkins_jobs.modules.helpers import artifactory_optional_props
-from jenkins_jobs.modules.helpers import artifactory_common_details
-from jenkins_jobs.errors import (InvalidAttributeError,
-                                 JenkinsJobsException,
-                                 MissingAttributeError)
-import logging
-import pkg_resources
-import sys
-import six
-import random
+from jenkins_jobs.modules.helpers import convert_mapping_to_xml
 
 
 def archive(parser, xml_parent, data):
@@ -55,14 +57,16 @@ def archive(parser, xml_parent, data):
     Archive build artifacts
 
     :arg str artifacts: path specifier for artifacts to archive
-    :arg str excludes: path specifier for artifacts to exclude
+    :arg str excludes: path specifier for artifacts to exclude (optional)
     :arg bool latest-only: only keep the artifacts from the latest
-      successful build
+        successful build
     :arg bool allow-empty:  pass the build if no artifacts are
-      found (default false)
+        found (default false)
     :arg bool only-if-success: archive artifacts only if build is successful
-      (default false)
+        (default false)
     :arg bool fingerprint: fingerprint all archived artifacts (default false)
+    :arg bool default-excludes: This option allows to enable or disable the
+        default Ant exclusions. (default true)
 
     Example:
 
@@ -101,6 +105,9 @@ def archive(parser, xml_parent, data):
         fingerprint = XML.SubElement(archiver, 'fingerprint')
         fingerprint.text = str(data.get('fingerprint', False)).lower()
 
+    default_excludes = XML.SubElement(archiver, 'defaultExcludes')
+    default_excludes.text = str(data.get('default-excludes', True)).lower()
+
 
 def blame_upstream(parser, xml_parent, data):
     """yaml: blame-upstream
@@ -120,9 +127,9 @@ def blame_upstream(parser, xml_parent, data):
 
 
 def jclouds(parser, xml_parent, data):
-    """yaml: JClouds Cloud Storage Settings
-    provides a way to store artifacts on JClouds supported storage providers.
-    Requires the Jenkins `JClouds Plugin.
+    """yaml: jclouds
+    JClouds Cloud Storage Settings provides a way to store artifacts on
+    JClouds supported storage providers. Requires the Jenkins `JClouds Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/JClouds+Plugin>`_
 
     JClouds Cloud Storage Settings must be configured for the Jenkins instance.
@@ -212,6 +219,52 @@ def jdepend(parser, xml_parent, data):
     XML.SubElement(jdepend, 'configuredJDependFile').text = str(filepath)
 
 
+def hue_light(parser, xml_parent, data):
+    """yaml: hue-light
+    This plugin shows the state of your builds using the awesome Philips hue
+    lights.
+
+    Requires the Jenkins :jenkins-wiki:`hue-light Plugin
+    <hue-light+Plugin>`.
+
+    :arg int light-id: ID of light. Define multiple lights by a comma as a
+        separator (required)
+    :arg string pre-build: Colour of building state (default 'blue')
+    :arg string good-build: Colour of succesful state (default 'green')
+    :arg string unstable-build: Colour of unstable state (default 'yellow')
+    :arg string bad-build: Colour of unsuccessful state (default 'red')
+
+    Example:
+
+    .. literalinclude::
+       /../../tests/publishers/fixtures/hue-light-minimal.yaml
+       :language: yaml
+
+    .. literalinclude::
+       /../../tests/publishers/fixtures/hue-light001.yaml
+       :language: yaml
+    """
+
+    hue_light = XML.SubElement(
+        xml_parent, 'org.jenkinsci.plugins.hue__light.LightNotifier')
+    hue_light.set('plugin', 'hue-light')
+
+    if 'light-id' not in data:
+        raise MissingAttributeError('light-id')
+    lightId = XML.SubElement(hue_light, 'lightId')
+    XML.SubElement(lightId, 'string').text = str(data.get(
+        'light-id', ''))
+
+    XML.SubElement(hue_light, 'preBuild').text = data.get(
+        'pre-build', 'blue')
+    XML.SubElement(hue_light, 'goodBuild').text = data.get(
+        'good-build', 'green')
+    XML.SubElement(hue_light, 'unstableBuild').text = data.get(
+        'unstable-build', 'yellow')
+    XML.SubElement(hue_light, 'badBuild').text = data.get(
+        'bad-build', 'red')
+
+
 def campfire(parser, xml_parent, data):
     """yaml: campfire
     Send build notifications to Campfire rooms.
@@ -258,7 +311,9 @@ def campfire(parser, xml_parent, data):
 
 def emotional_jenkins(parser, xml_parent, data):
     """yaml: emotional-jenkins
-    Emotional Jenkins.
+    Emotional Jenkins. This funny plugin changes the expression of Mr. Jenkins
+    in the background when your builds fail.
+
     Requires the Jenkins :jenkins-wiki:`Emotional Jenkins Plugin
     <Emotional+Jenkins+Plugin>`.
 
@@ -306,7 +361,9 @@ def trigger_parameterized_builds(parser, xml_parent, data):
       'UNSTABLE_OR_WORSE', 'FAILED', 'ALWAYS'. (default: 'ALWAYS')
     :arg str property-file: Use properties from file (optional)
     :arg bool fail-on-missing: Blocks the triggering of the downstream jobs
-        if any of the files are not found in the workspace (default 'False')
+        if any of the property files are not found in the workspace.
+        Only valid when 'property-file' is specified.
+        (default 'False')
     :arg bool use-matrix-child-files: Use files in workspaces of child
         builds (default 'False')
     :arg str matrix-child-combination-filter: A Groovy expression to filter
@@ -2049,7 +2106,7 @@ def groovy_postbuild(parser, xml_parent, data):
     # Backward compatibility with old format
     if isinstance(data, six.string_types):
         logger.warn(
-            "You use depricated configuration, please follow documentation "
+            "You use deprecated configuration, please follow documentation "
             "to change configuration. It is not going to be supported in "
             "future releases!"
         )
@@ -2771,7 +2828,7 @@ def html_publisher(parser, xml_parent, data):
 
 
 def rich_text_publisher(parser, xml_parent, data):
-    """yaml: rich_text_publisher
+    """yaml: rich-text-publisher
     This plugin puts custom rich text message to the Build pages and Job main
     page.
 
@@ -2899,7 +2956,7 @@ def post_tasks(parser, xml_parent, data):
                 matches_xml,
                 'hudson.plugins.postbuildtask.LogProperties')
             XML.SubElement(lt_xml, 'logText').text = str(
-                match.get('log-text', ''))
+                match.get('log-text', False) or '')
             XML.SubElement(lt_xml, 'operator').text = str(
                 match.get('operator', 'AND')).upper()
         XML.SubElement(task_xml, 'EscalateStatus').text = str(
@@ -3211,6 +3268,14 @@ def warnings(parser, xml_parent, data):
         decreasing. However, sometimes false positives will be reported due
         to minor changes in a warning (refactoring of variable of method
         names, etc.) (default false)
+    :arg bool use-previous-build-as-reference: If set the number of new
+        warnings will always be computed based on the previous build, even if
+        that build is unstable (due to a violated warning threshold).
+        Otherwise the last build that did not violate any given threshold will
+        be used as
+        reference. It is recommended to uncheck this option if the plug-in
+        should ensure that all new warnings will be finally fixed in subsequent
+        builds. (default false)
     :arg bool only-use-stable-builds-as-reference: The number of new warnings
         will be calculated based on the last stable build, allowing reverts
         of unstable builds where the number of warnings was decreased.
@@ -3280,6 +3345,9 @@ def warnings(parser, xml_parent, data):
         XML.SubElement(warnings, 'dontComputeNew').text = 'false'
         delta = data.get('use-delta-for-new-warnings', False)
         XML.SubElement(warnings, 'useDeltaValues').text = str(delta).lower()
+        use_previous_build = data.get('use-previous-build-as-reference', False)
+        XML.SubElement(warnings, 'usePreviousBuildAsReference').text = str(
+            use_previous_build).lower()
         use_stable_builds = data.get('only-use-stable-builds-as-reference',
                                      False)
         XML.SubElement(warnings, 'useStableBuildAsReference').text = str(
@@ -3331,7 +3399,7 @@ def ircbot(parser, xml_parent, data):
 
         :strategy values:
             * **all** always (default)
-            * **any-failure** on any failure_and_fixed
+            * **any-failure** on any failure
             * **failure-and-fixed** on failure and fixes
             * **new-failure-and-fixed** on new failure and fixes
             * **statechange-only** only on state change
@@ -3786,6 +3854,7 @@ def stash(parser, xml_parent, data):
     :arg string url: Base url of Stash Server (Default: "")
     :arg string username: Username of Stash Server (Default: "")
     :arg string password: Password of Stash Server (Default: "")
+    :arg string credentials-id: Credentials of Stash Server (optional)
     :arg bool   ignore-ssl: Ignore unverified SSL certificate (Default: False)
     :arg string commit-sha1: Commit SHA1 to notify (Default: "")
     :arg bool   include-build-number: Include build number in key
@@ -3800,12 +3869,17 @@ def stash(parser, xml_parent, data):
                          'org.jenkinsci.plugins.stashNotifier.StashNotifier')
 
     XML.SubElement(top, 'stashServerBaseUrl').text = data.get('url', '')
-    XML.SubElement(top, 'stashUserName'
-                   ).text = get_value_from_yaml_or_config_file(
-                       'username', 'stash', data, parser)
-    XML.SubElement(top, 'stashUserPassword'
-                   ).text = get_value_from_yaml_or_config_file(
-                       'password', 'stash', data, parser)
+    if data.get('credentials-id') is not None:
+        XML.SubElement(top, 'credentialsId').text = str(
+            data.get('credentials-id'))
+    else:
+        XML.SubElement(top, 'stashUserName'
+                       ).text = get_value_from_yaml_or_config_file(
+                           'username', 'stash', data, parser)
+        XML.SubElement(top, 'stashUserPassword'
+                       ).text = get_value_from_yaml_or_config_file(
+                           'password', 'stash', data, parser)
+
     XML.SubElement(top, 'ignoreUnverifiedSSLPeer').text = str(
         data.get('ignore-ssl', False)).lower()
     XML.SubElement(top, 'commitSha1').text = data.get('commit-sha1', '')
@@ -3861,7 +3935,8 @@ def doxygen(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Doxygen Plugin <Doxygen+Plugin>`.
 
     :arg str doxyfile: The doxyfile path
-    :arg bool keepall: Retain doxygen generation for each successful build
+    :arg str slave: The node or label to pull the doxygen HTML files from
+    :arg bool keep-all: Retain doxygen generation for each successful build
         (default: false)
     :arg str folder: Folder where you run doxygen (default: '')
 
@@ -3870,13 +3945,29 @@ def doxygen(parser, xml_parent, data):
     .. literalinclude:: /../../tests/publishers/fixtures/doxygen001.yaml
        :language: yaml
     """
+
+    logger = logging.getLogger(__name__)
     p = XML.SubElement(xml_parent, 'hudson.plugins.doxygen.DoxygenArchiver')
-    if not data['doxyfile']:
-        raise JenkinsJobsException("The path to a doxyfile must be specified.")
-    XML.SubElement(p, 'doxyfilePath').text = str(data.get("doxyfile"))
-    XML.SubElement(p, 'keepAll').text = str(data.get("keepall", False)).lower()
-    XML.SubElement(p, 'folderWhereYouRunDoxygen').text = \
-        str(data.get("folder", ""))
+    if not data.get('doxyfile'):
+        raise JenkinsJobsException('The path to a doxyfile must be specified.')
+    XML.SubElement(p, 'doxyfilePath').text = str(data.get('doxyfile'))
+    XML.SubElement(p, 'runOnChild').text = str(data.get('slave', ''))
+    # backward compatibility
+    if 'keepall' in data:
+        if 'keep-all' in data:
+            XML.SubElement(p, 'keepAll').text = str(
+                data.get('keep-all', False)).lower()
+            logger.warn("The value of 'keepall' will be ignored "
+                        "in preference to 'keep-all'.")
+        else:
+            XML.SubElement(p, 'keepAll').text = str(
+                data.get('keepall', False)).lower()
+            logger.warn("'keepall' is deprecated please use 'keep-all'")
+    else:
+        XML.SubElement(p, 'keepAll').text = str(
+            data.get('keep-all', False)).lower()
+    XML.SubElement(p, 'folderWhereYouRunDoxygen').text = str(
+        data.get('folder', ''))
 
 
 def sitemonitor(parser, xml_parent, data):
@@ -4425,7 +4516,7 @@ def downstream_ext(parser, xml_parent, data):
     <Downstream-Ext+Plugin>`.
 
     :arg list projects: Projects to build (required)
-    :arg string comparison: comparison used for the criteria.
+    :arg string condition: comparison condition used for the criteria.
       One of 'equal-or-over', 'equal-or-under', 'equal'
       (default: 'equal-or-over')
     :arg string criteria: Trigger downstream job if build results meets
@@ -4446,7 +4537,7 @@ def downstream_ext(parser, xml_parent, data):
     conditions = {
         "equal-or-over": "AND_HIGHER",
         "equal-or-under": "AND_LOWER",
-        "equal": "EQUAL"
+        "equal": "EXACT"
     }
 
     p = XML.SubElement(xml_parent,
@@ -5066,6 +5157,9 @@ def google_cloud_storage(parser, xml_parent, data):
                       share uploaded artifacts with everyone (default false)
                     * **upload-for-failed-jobs** (`bool`) whether to upload
                       artifacts even if the build fails (default false)
+                    * **strip-prefix** (`str`) strip this prefix off the
+                      file names (default: not set)
+
             * **classic** (`dict`)
                 :params:
                     * **file-pattern** (`str`) ant style globs to match the
@@ -5076,6 +5170,8 @@ def google_cloud_storage(parser, xml_parent, data):
                       share uploaded artifacts with everyone (default false)
                     * **upload-for-failed-jobs** (`bool`) whether to upload
                       artifacts even if the build fails (default false)
+                    * **strip-prefix** (`str`) strip this prefix off the
+                      file names (default: not set)
 
     Example:
 
@@ -5136,6 +5232,9 @@ def google_cloud_storage(parser, xml_parent, data):
         XML.SubElement(xml_element, 'forFailedJobs').text = str(
             properties.get('upload-for-failed-jobs', False)).lower()
 
+        XML.SubElement(xml_element, 'pathPrefix').text = str(
+            properties.get('strip-prefix', ''))
+
         if types.count('build-log') > 1:
             XML.SubElement(xml_element, 'module',
                            {'reference': '../../com.google.jenkins.plugins.'
@@ -5165,6 +5264,9 @@ def google_cloud_storage(parser, xml_parent, data):
 
         XML.SubElement(xml_element, 'forFailedJobs').text = str(
             properties.get('upload-for-failed-jobs', False)).lower()
+
+        XML.SubElement(xml_element, 'pathPrefix').text = str(
+            properties.get('strip-prefix', ''))
 
         if types.count('classic') > 1:
             XML.SubElement(xml_element, 'module',
@@ -5310,6 +5412,62 @@ def clamav(parser, xml_parent, data):
         data.get('includes', ''))
     XML.SubElement(clamav, 'excludes').text = str(
         data.get('excludes', ''))
+
+
+def testselector(parser, xml_parent, data):
+    """yaml: testselector
+    This plugin allows you to choose specific tests you want to run.
+
+    Requires the Jenkins :jenkins-wiki:`Tests Selector Plugin
+    <Tests+Selector+Plugin>`.
+
+    :arg str name: Environment variable in which selected tests are saved
+      (required)
+    :arg str description: Description
+      (default "")
+    :arg str properties-file: Contain all your tests
+      (required)
+    :arg str enable-field: Imply if the test is enabled or not
+      (default "")
+    :arg str groupby: Plugin will group the tests by
+      (default "")
+    :arg str field-sperator: Separate between the fields in the tests tree
+      (default "")
+    :arg str show-fields: Shown in the tests tree
+      (default "")
+    :arg str multiplicity-field: Amount of times the test should run
+      (default "")
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/testselector001.yaml
+       :language: yaml
+    """
+
+    testselector = XML.SubElement(xml_parent, 'il.ac.technion.jenkins.plugins'
+                                              'TestExecuter')
+    try:
+        name = str(data['name'])
+    except KeyError as e:
+        raise MissingAttributeError(e.args[0])
+    try:
+        propertiesfile = str(data['properties-file'])
+    except KeyError as e:
+        raise MissingAttributeError(e.args[0])
+    XML.SubElement(testselector, 'name').text = name
+    XML.SubElement(testselector, 'description').text = data.get(
+        'description', '')
+    XML.SubElement(testselector, 'propertiesFilePath').text = propertiesfile
+    XML.SubElement(testselector, 'enableField').text = data.get(
+        'enable-field', '')
+    XML.SubElement(testselector, 'groupBy').text = data.get(
+        'groupby', '')
+    XML.SubElement(testselector, 'fieldSeparator').text = data.get(
+        'field-separator', '')
+    XML.SubElement(testselector, 'showFields').text = data.get(
+        'show-fields', '')
+    XML.SubElement(testselector, 'multiplicityField').text = data.get(
+        'multiplicity-field', '')
 
 
 def cloudformation(parser, xml_parent, data):
@@ -5503,6 +5661,52 @@ def hipchat(parser, xml_parent, data):
             data['complete-message'])
 
 
+def slack(parser, xml_parent, data):
+    """yaml: slack
+    Publisher that sends slack notifications on job events.
+
+    Requires the Jenkins :jenkins-wiki:`Slack Plugin <Slack+Plugin>`
+
+    As the Slack Plugin itself requires a publisher aswell as properties
+    please note that you have to create those too.
+
+    :arg str team-domain: Your team's domain at slack. (default: '')
+    :arg str auth-token: The integration token to be used when sending
+        notifications. (default: '')
+    :arg str build-server-url: Specify the URL for your server installation.
+        (default: '/')
+    :arg str room: A comma seperated list of rooms / channels to post the
+        notifications to. (default: '')
+    Example:
+
+    .. literalinclude::
+        /../../tests/publishers/fixtures/slack001.yaml
+        :language: yaml
+    """
+    def _add_xml(elem, name, value=''):
+        XML.SubElement(elem, name).text = value
+
+    mapping = (
+        ('team-domain', 'teamDomain', ''),
+        ('auth-token', 'authToken', ''),
+        ('build-server-url', 'buildServerUrl', '/'),
+        ('room', 'room', ''),
+    )
+
+    slack = XML.SubElement(
+        xml_parent,
+        'jenkins.plugins.slack.SlackNotifier',
+    )
+
+    for yaml_name, xml_name, default_value in mapping:
+        value = data.get(yaml_name, default_value)
+        # All arguments that don't have a default value are mandatory for the
+        # plugin to work as intended.
+        if not value:
+            raise MissingAttributeError(yaml_name)
+        _add_xml(slack, xml_name, value)
+
+
 def phabricator(parser, xml_parent, data):
     """yaml: phabricator
     Integrate with `Phabricator <http://phabricator.org/>`_
@@ -5543,6 +5747,153 @@ def phabricator(parser, xml_parent, data):
     if 'comment-with-console-link-on-failure' in data:
         XML.SubElement(root, 'commentWithConsoleLinkOnFailure').text = str(
             data.get('comment-with-console-link-on-failure')).lower()
+
+
+def openshift_build_canceller(parser, xml_parent, data):
+    """yaml: openshift-build-canceller
+    This action is intended to provide cleanup for a Jenkins job which failed
+    because a build is hung (instead of terminating with a failure code);
+    this step will allow you to perform the equivalent of a oc cancel-build
+    for the provided build config; any builds under that build config which
+    are not previously terminated (either successfully or unsuccessfully)
+    or cancelled will be cancelled.
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
+
+    :arg str api-url: this would be the value you specify if you leverage the
+        --server option on the OpenShift `oc` command.
+        (default '\https://openshift.default.svc.cluster.local')
+    :arg str bld-cfg: The value here should be whatever was the output
+        form `oc project` when you created the BuildConfig you
+        want to run a Build on (default 'frontend')
+    :arg str namespace: If you run `oc get bc` for the project listed in
+        "namespace", that is the value you want to put here. (default 'test')
+    :arg str auth-token: The value here is what you supply with the --token
+        option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-build-canceller001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-build-canceller002.yaml
+       :language: yaml
+    """
+
+    osb = XML.SubElement(xml_parent,
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftBuildCanceller')
+    mapping = [
+        # option, xml name, default value
+        ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
+        ("bld-cfg", 'bldCfg', 'frontend'),
+        ("namespace", 'namespace', 'test'),
+        ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
+
+
+def openshift_deploy_canceller(parser, xml_parent, data):
+    """yaml: openshift-deploy-canceller
+    This action is intended to provide cleanup for any OpenShift deployments
+    left running when the Job completes; this step will allow you to perform
+    the equivalent of a oc deploy --cancel for the provided deployment config.
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
+
+    :arg str api-url: this would be the value you specify if you leverage the
+        --server option on the OpenShift `oc` command.
+        (default '\https://openshift.default.svc.cluster.local')
+    :arg str dep-cfg: The value here should be whatever was the output
+        form `oc project` when you created the BuildConfig you want to run a
+        Build on (default frontend)
+    :arg str namespace: If you run `oc get bc` for the project listed in
+        "namespace", that is the value you want to put here. (default 'test')
+    :arg str auth-token: The value here is what you supply with the --token
+        option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-deploy-canceller001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-deploy-canceller002.yaml
+       :language: yaml
+    """
+
+    osb = XML.SubElement(xml_parent,
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftDeployCanceller')
+    mapping = [
+        # option, xml name, default value
+        ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
+        ("dep-cfg", 'depCfg', 'frontend'),
+        ("namespace", 'namespace', 'test'),
+        ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
+
+
+def github_pull_request_merge(parser, xml_parent, data):
+    """yaml: github-pull-request-merge
+    This action merges the pull request that triggered the build (see the
+    github pull request trigger)
+    Requires the Jenkins :jenkins-wiki:`GitHub pull request builder plugin
+    <GitHub+pull+request+builder+plugin>`.
+
+
+    :arg bool only-admins-merge: if `true` only administrators can merge the
+        pull request, (default false)
+    :arg bool disallow-own-code: if `true` will allow merging your own pull
+        requests, in opposite to needing someone else to trigger the merge.
+        (default false)
+    :arg bool merge-comment: Comment to set on the merge commit (optional)
+    :arg bool fail-on-non-merge: fail the job if the merge was unsuccessful
+        (default false)
+    :arg bool delete-on-merge: Delete the branch of the pull request on
+        successful merge (default false)
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/github-pull-request-merge001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/github-pull-request-merge002.yaml
+       :language: yaml
+    """
+
+    osb = XML.SubElement(xml_parent,
+                         'org.jenkinsci.plugins.ghprb.GhprbPullRequestMerge')
+    mapping = [
+        # option, xml name, default value
+        ("only-admins-merge", 'onlyAdminsMerge', 'false'),
+        ("disallow-own-code", 'disallowOwnCode', 'false'),
+        ("merge-comment", 'mergeComment', None),
+        ("fail-on-non-merge", 'failOnNonMerge', 'false'),
+        ("delete-on-merge", 'deleteOnMerge', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
 
 
 class Publishers(jenkins_jobs.modules.base.Base):
