@@ -18,6 +18,8 @@
 
 
 """
+Deprecated: please use :ref:`project_pipeline` instead.
+
 The workflow Project module handles creating Jenkins workflow projects.
 You may specify ``workflow`` in the ``project-type`` attribute of
 the :ref:`Job` definition.
@@ -45,6 +47,7 @@ Job template example:
       /../../tests/yamlparser/fixtures/project_workflow_template002.yaml
 
 """
+import logging
 import xml.etree.ElementTree as XML
 
 from jenkins_jobs.errors import MissingAttributeError
@@ -55,6 +58,11 @@ class Workflow(jenkins_jobs.modules.base.Base):
     sequence = 0
 
     def root_xml(self, data):
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Workflow job type is deprecated, please use Pipeline job type"
+        )
+
         xml_parent = XML.Element('flow-definition',
                                  {'plugin': 'workflow-job'})
         xml_definition = XML.SubElement(xml_parent, 'definition',
@@ -64,7 +72,7 @@ class Workflow(jenkins_jobs.modules.base.Base):
         try:
             XML.SubElement(xml_definition, 'script').text = data['dsl']
         except KeyError as e:
-            raise MissingAttributeError(e.arg[0])
+            raise MissingAttributeError(e.args[0])
 
         needs_workspace = data.get('sandbox', False)
         XML.SubElement(xml_definition, 'sandbox').text = str(
