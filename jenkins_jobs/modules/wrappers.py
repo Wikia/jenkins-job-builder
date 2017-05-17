@@ -2418,6 +2418,40 @@ def version_number(parser, xml_parent, data):
 
     convert_mapping_to_xml(version_number, data, mapping, fail_required=True)
 
+def vault(registry, xml_parent, data):
+    """yaml: vault
+    Add Basic Hashicorp Vault Support
+    Requires the Jenkins :jenkins-wiki:`Vault Plugin <Hashicorp+Vault+Plugin>`.
+
+    Example::
+
+    wrappers:
+      - vault:
+          path: "/path/to/vault"
+          secret-values:
+            - secrete:
+                env-var: XXX
+                vault-key: YYY
+            - secrete:
+                env-var: XXX
+                vault-key: YYY
+    """
+    vault = XML.SubElement(xml_parent,
+                   'com.datapipe.jenkins.vault.VaultBuildWrapper')
+    vault.set('plugin', 'hashicorp-vault-plugin')
+
+    vaultSecrets = XML.SubElement(vault, 'vaultSecrets')
+    XML.SubElement(vault, 'valuesToMask')
+    vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.VaultSecret')
+    XML.SubElement(vaultSecret, 'path').text = str(data.get('path'))
+    if 'secret-values' in data:
+            secreteValues = XML.SubElement(vaultSecret, 'secretValues')
+            for foo in data['secret-values']:
+                for template, params in foo.items():
+                    secrete = XML.SubElement(secreteValues,
+                                              'com.datapipe.jenkins.vault.VaultSecretValue')
+                    XML.SubElement(secrete, 'envVar').text = str(params.get('env-var'))
+                    XML.SubElement(secrete, 'vaultKey').text = str(params.get('vault-key'))
 
 class Wrappers(jenkins_jobs.modules.base.Base):
     sequence = 80
