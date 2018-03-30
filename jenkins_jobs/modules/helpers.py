@@ -12,8 +12,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import logging
-
 import xml.etree.ElementTree as XML
 
 from jenkins_jobs.errors import InvalidAttributeError
@@ -250,7 +248,10 @@ def findbugs_settings(xml_parent, data):
 
 
 def get_value_from_yaml_or_config_file(key, section, data, jjb_config):
-    return jjb_config.get_plugin_config(section, key, data.get(key, ''))
+    result = data.get(key, '')
+    if result == '':
+        result = jjb_config.get_plugin_config(section, key)
+    return result
 
 
 def cloudformation_region_dict():
@@ -279,28 +280,29 @@ def cloudformation_stack(xml_parent, stack, xml_tag, stacks, region_dict):
     step = XML.SubElement(
         stacks, 'com.syncapse.jenkinsci.plugins.'
                 'awscloudformationwrapper.' + xml_tag)
-
+    try:
+        XML.SubElement(step, 'stackName').text = stack['name']
+        XML.SubElement(step, 'awsAccessKey').text = stack['access-key']
+        XML.SubElement(step, 'awsSecretKey').text = stack['secret-key']
+        region = stack['region']
+    except KeyError as e:
+        raise MissingAttributeError(e.args[0])
+    if region not in region_dict:
+        raise InvalidAttributeError('region', region, region_dict.keys())
+    XML.SubElement(step, 'awsRegion').text = region_dict.get(region)
     if xml_tag == 'SimpleStackBean':
-        mapping = [('prefix', 'isPrefixSelected', False)]
+        prefix = str(stack.get('prefix', False)).lower()
+        XML.SubElement(step, 'isPrefixSelected').text = prefix
     else:
-        parameters_value = ','.join(stack.get('parameters', []))
-        mapping = [
-            ('description', 'description', ''),
-            ('', 'parameters', parameters_value),
-            ('timeout', 'timeout', '0'),
-            ('sleep', 'sleep', '0'),
-            ('recipe', 'cloudFormationRecipe', None)]
-
-    cloudformation_stack_mapping = [
-        ('name', 'stackName', None),
-        ('access-key', 'awsAccessKey', None),
-        ('secret-key', 'awsSecretKey', None),
-        ('region', 'awsRegion', None, region_dict)]
-    for map in mapping:
-        cloudformation_stack_mapping.append(map)
-
-    convert_mapping_to_xml(step, stack,
-        cloudformation_stack_mapping, fail_required=True)
+        XML.SubElement(step, 'description').text = stack.get('description', '')
+        XML.SubElement(step, 'parameters').text = ','.join(
+            stack.get('parameters', []))
+        XML.SubElement(step, 'timeout').text = str(stack.get('timeout', '0'))
+        XML.SubElement(step, 'sleep').text = str(stack.get('sleep', '0'))
+        try:
+            XML.SubElement(step, 'cloudFormationRecipe').text = stack['recipe']
+        except KeyError as e:
+            raise MissingAttributeError(e.args[0])
 
 
 def include_exclude_patterns(xml_parent, data, yaml_prefix,
@@ -385,31 +387,26 @@ def artifactory_optional_props(xml_parent, data, target):
 
 
 def artifactory_common_details(details, data):
-    mapping = [
-        ('name', 'artifactoryName', ''),
-        ('url', 'artifactoryUrl', ''),
-    ]
-    convert_mapping_to_xml(details, data, mapping, fail_required=True)
+    XML.SubElement(details, 'artifactoryName').text = data.get('name', '')
+    XML.SubElement(details, 'artifactoryUrl').text = data.get('url', '')
 
 
 def artifactory_repository(xml_parent, data, target):
     if 'release' in target:
-        release_mapping = [
-            ('deploy-release-repo-key', 'keyFromText', ''),
-            ('deploy-release-repo-key', 'keyFromSelect', ''),
-            ('deploy-dynamic-mode', 'dynamicMode', False),
-        ]
-        convert_mapping_to_xml(
-            xml_parent, data, release_mapping, fail_required=True)
+        XML.SubElement(xml_parent, 'keyFromText').text = data.get(
+            'deploy-release-repo-key', '')
+        XML.SubElement(xml_parent, 'keyFromSelect').text = data.get(
+            'deploy-release-repo-key', '')
+        XML.SubElement(xml_parent, 'dynamicMode').text = str(
+            data.get('deploy-dynamic-mode', False)).lower()
 
     if 'snapshot' in target:
-        snapshot_mapping = [
-            ('deploy-snapshot-repo-key', 'keyFromText', ''),
-            ('deploy-snapshot-repo-key', 'keyFromSelect', ''),
-            ('deploy-dynamic-mode', 'dynamicMode', False),
-        ]
-        convert_mapping_to_xml(
-            xml_parent, data, snapshot_mapping, fail_required=True)
+        XML.SubElement(xml_parent, 'keyFromText').text = data.get(
+            'deploy-snapshot-repo-key', '')
+        XML.SubElement(xml_parent, 'keyFromSelect').text = data.get(
+            'deploy-snapshot-repo-key', '')
+        XML.SubElement(xml_parent, 'dynamicMode').text = str(
+            data.get('deploy-dynamic-mode', False)).lower()
 
 
 def append_git_revision_config(parent, config_def):
@@ -462,131 +459,6 @@ def test_fairy_common(xml_element, data):
         ('advanced-options', 'advancedOptions', '')
     ]
     convert_mapping_to_xml(xml_element, data, mappings, fail_required=True)
-
-
-def trigger_get_parameter_order(registry, plugin):
-    logger = logging.getLogger("%s:trigger_get_parameter_order" % __name__)
-
-    if str(registry.jjb_config.get_plugin_config(
-            plugin, 'param_order_from_yaml', True)).lower() == 'false':
-        logger.warning(
-            "Using deprecated order for parameter sets in %s. It is "
-            "recommended that you update your job definition instead of "
-            "enabling use of the old hardcoded order", plugin)
-
-        # deprecated order
-        return [
-            'predefined-parameters',
-            'git-revision',
-            'property-file',
-            'current-parameters',
-            'node-parameters',
-            'svn-revision',
-            'restrict-matrix-project',
-            'node-label-name',
-            'node-label',
-            'boolean-parameters',
-        ]
-
-    return None
-
-
-def trigger_project(tconfigs, project_def, param_order=None):
-
-    logger = logging.getLogger("%s:trigger_project" % __name__)
-    pt_prefix = 'hudson.plugins.parameterizedtrigger.'
-    if param_order:
-        parameters = param_order
-    else:
-        parameters = project_def.keys()
-
-    for param_type in parameters:
-        param_value = project_def.get(param_type)
-        if param_value is None:
-            continue
-
-        if param_type == 'predefined-parameters':
-            params = XML.SubElement(tconfigs, pt_prefix +
-                                    'PredefinedBuildParameters')
-            properties = XML.SubElement(params, 'properties')
-            properties.text = param_value
-        elif param_type == 'git-revision' and param_value:
-            if 'combine-queued-commits' in project_def:
-                logger.warning(
-                    "'combine-queued-commit' has moved to reside under "
-                    "'git-revision' configuration, please update your "
-                    "configs as support for this will be removed."
-                )
-                git_revision = {
-                    'combine-queued-commits':
-                    project_def['combine-queued-commits']
-                }
-            else:
-                git_revision = project_def['git-revision']
-            append_git_revision_config(tconfigs, git_revision)
-        elif param_type == 'property-file':
-            params = XML.SubElement(tconfigs,
-                                    pt_prefix + 'FileBuildParameters')
-            property_file_mapping = [
-                ('property-file', 'propertiesFile', None),
-                ('fail-on-missing', 'failTriggerOnMissing', False)]
-            convert_mapping_to_xml(params, project_def,
-                property_file_mapping, fail_required=True)
-            if 'file-encoding' in project_def:
-                XML.SubElement(params, 'encoding'
-                               ).text = project_def['file-encoding']
-            if 'use-matrix-child-files' in project_def:
-                # TODO: These parameters only affect execution in
-                # publishers of matrix projects; we should warn if they are
-                # used in other contexts.
-                use_matrix_child_files_mapping = [
-                    ('use-matrix-child-files', "useMatrixChild", None),
-                    ('matrix-child-combination-filter',
-                        "combinationFilter", ''),
-                    ('only-exact-matrix-child-runs', "onlyExactRuns", False)]
-                convert_mapping_to_xml(params, project_def,
-                    use_matrix_child_files_mapping, fail_required=True)
-        elif param_type == 'current-parameters' and param_value:
-            XML.SubElement(tconfigs, pt_prefix + 'CurrentBuildParameters')
-        elif param_type == 'node-parameters' and param_value:
-            XML.SubElement(tconfigs, pt_prefix + 'NodeParameters')
-        elif param_type == 'svn-revision' and param_value:
-            param = XML.SubElement(tconfigs, pt_prefix +
-                                   'SubversionRevisionBuildParameters')
-            XML.SubElement(param, 'includeUpstreamParameters').text = str(
-                project_def.get('include-upstream', False)).lower()
-        elif param_type == 'restrict-matrix-project' and param_value:
-            subset = XML.SubElement(tconfigs, pt_prefix +
-                                    'matrix.MatrixSubsetBuildParameters')
-            XML.SubElement(subset, 'filter'
-                           ).text = project_def['restrict-matrix-project']
-        elif (param_type == 'node-label-name' or
-                param_type == 'node-label'):
-            tag_name = ('org.jvnet.jenkins.plugins.nodelabelparameter.'
-                        'parameterizedtrigger.NodeLabelBuildParameter')
-            if tconfigs.find(tag_name) is not None:
-                # already processed and can only have one
-                continue
-            params = XML.SubElement(tconfigs, tag_name)
-            name = XML.SubElement(params, 'name')
-            if 'node-label-name' in project_def:
-                name.text = project_def['node-label-name']
-            label = XML.SubElement(params, 'nodeLabel')
-            if 'node-label' in project_def:
-                label.text = project_def['node-label']
-        elif param_type == 'boolean-parameters' and param_value:
-            params = XML.SubElement(tconfigs,
-                                    pt_prefix + 'BooleanParameters')
-            config_tag = XML.SubElement(params, 'configs')
-            param_tag_text = pt_prefix + 'BooleanParameterConfig'
-            params_list = param_value
-            for name, value in params_list.items():
-                param_tag = XML.SubElement(config_tag, param_tag_text)
-                mapping = [
-                    ('', 'name', name),
-                    ('', 'value', value or False)]
-                convert_mapping_to_xml(param_tag, project_def,
-                    mapping, fail_required=True)
 
 
 def convert_mapping_to_xml(parent, data, mapping, fail_required=False):
@@ -650,29 +522,3 @@ def convert_mapping_to_xml(parent, data, mapping, fail_required=False):
             XML.SubElement(parent, xmlname).text = str(valid_dict[val])
         else:
             XML.SubElement(parent, xmlname).text = str(val)
-
-
-def jms_messaging_common(parent, subelement, data):
-    """JMS common helper function
-
-    Pass the XML parent and the specific subelement from the builder or the
-    publisher.
-
-    data is passed to mapper helper function to map yaml fields to XML fields
-    """
-    namespace = XML.SubElement(parent,
-                               subelement)
-
-    if 'override-topic' in data:
-        overrides = XML.SubElement(namespace, 'overrides')
-        XML.SubElement(overrides,
-                       'topic').text = str(data.get('override-topic', ''))
-
-    mapping = [
-        # option, xml name, default value
-        ("provider-name", 'providerName', ''),
-        ("msg-type", 'messageType', 'CodeQualityChecksDone'),
-        ("msg-props", 'messageProperties', ''),
-        ("msg-content", 'messageContent', ''),
-    ]
-    convert_mapping_to_xml(namespace, data, mapping, fail_required=True)

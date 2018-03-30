@@ -50,8 +50,8 @@ Job template example:
 import logging
 import xml.etree.ElementTree as XML
 
+from jenkins_jobs.errors import MissingAttributeError
 import jenkins_jobs.modules.base
-from jenkins_jobs.modules.helpers import convert_mapping_to_xml
 
 
 class Workflow(jenkins_jobs.modules.base.Base):
@@ -69,10 +69,13 @@ class Workflow(jenkins_jobs.modules.base.Base):
                                         {'plugin': 'workflow-cps',
                                          'class': 'org.jenkinsci.plugins.'
                                          'workflow.cps.CpsFlowDefinition'})
-        mapping = [
-            ('dsl', 'script', None),
-            ('sandbox', 'sandbox', False)]
-        convert_mapping_to_xml(xml_definition,
-            data, mapping, fail_required=True)
+        try:
+            XML.SubElement(xml_definition, 'script').text = data['dsl']
+        except KeyError as e:
+            raise MissingAttributeError(e.args[0])
+
+        needs_workspace = data.get('sandbox', False)
+        XML.SubElement(xml_definition, 'sandbox').text = str(
+            needs_workspace).lower()
 
         return xml_parent

@@ -4,6 +4,7 @@
     <hudson.plugins.cmake.CmakeBuilder>
       <sourceDir>path/to/source</sourceDir>
       <generator>Unix Makefiles</generator>
+      <preloadScript/>
       <cleanBuild>false</cleanBuild>
       <workingDir>path/to/build</workingDir>
       <buildType>Debug</buildType>

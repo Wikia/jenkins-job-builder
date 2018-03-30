@@ -30,14 +30,12 @@ VERSION=&quot;1.2&quot;
   <publishers/>
   <buildWrappers>
     <hudson.plugins.build__timeout.BuildTimeoutWrapper>
-      <strategy class="hudson.plugins.build_timeout.impl.ElasticTimeOutStrategy">
-        <timeoutPercentage>150</timeoutPercentage>
-        <numberOfBuilds>0</numberOfBuilds>
-        <timeoutMinutesElasticDefault>90</timeoutMinutesElasticDefault>
-      </strategy>
-      <operationList>
-        <hudson.plugins.build__timeout.operations.FailOperation/>
-      </operationList>
+      <timeoutMinutes>3</timeoutMinutes>
+      <failBuild>true</failBuild>
+      <writingDescription>false</writingDescription>
+      <timeoutPercentage>150</timeoutPercentage>
+      <timeoutMinutesElasticDefault>90</timeoutMinutesElasticDefault>
+      <timeoutType>elastic</timeoutType>
     </hudson.plugins.build__timeout.BuildTimeoutWrapper>
     <org.jenkinsci.plugins.preSCMbuildstep.PreSCMBuildStepsWrapper>
       <buildSteps>

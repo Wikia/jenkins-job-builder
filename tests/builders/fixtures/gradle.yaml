@@ -1,6 +1,5 @@
 builders:
   - gradle:
-      build-file: "build.gradle"
       gradle-name: "gradle-1.2"
       wrapper: true
       executable: true

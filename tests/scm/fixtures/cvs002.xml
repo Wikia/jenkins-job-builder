@@ -4,7 +4,6 @@
     <repositories>
       <hudson.scm.CvsRepository>
         <cvsRoot>:protocol:user@host1:path</cvsRoot>
-        <compressionLevel>1</compressionLevel>
         <repositoryItems>
           <hudson.scm.CvsRepositoryItem>
             <location class="hudson.scm.CvsRepositoryLocation$TagRepositoryLocation">
@@ -32,10 +31,10 @@
             <pattern>pattern2</pattern>
           </hudson.scm.ExcludedRegion>
         </excludedRegions>
+        <compressionLevel>1</compressionLevel>
       </hudson.scm.CvsRepository>
       <hudson.scm.CvsRepository>
         <cvsRoot>:protocol:user@host2:path</cvsRoot>
-        <compressionLevel>-1</compressionLevel>
         <repositoryItems>
           <hudson.scm.CvsRepositoryItem>
             <location class="hudson.scm.CvsRepositoryLocation$HeadRepositoryLocation">
@@ -50,6 +49,7 @@
           </hudson.scm.CvsRepositoryItem>
         </repositoryItems>
         <excludedRegions/>
+        <compressionLevel>-1</compressionLevel>
       </hudson.scm.CvsRepository>
     </repositories>
     <canUseUpdate>false</canUseUpdate>

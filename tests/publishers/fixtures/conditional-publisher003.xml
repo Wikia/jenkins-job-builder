@@ -9,12 +9,9 @@
           <publisherList>
             <hudson.tasks.ArtifactArchiver>
               <artifacts>**/**</artifacts>
-              <allowEmptyArchive>true</allowEmptyArchive>
-              <onlyIfSuccessful>false</onlyIfSuccessful>
-              <fingerprint>false</fingerprint>
-              <defaultExcludes>true</defaultExcludes>
-              <caseSensitive>true</caseSensitive>
               <latestOnly>false</latestOnly>
+              <allowEmptyArchive>true</allowEmptyArchive>
+              <defaultExcludes>true</defaultExcludes>
             </hudson.tasks.ArtifactArchiver>
             <hudson.tasks.test.AggregatedTestResultPublisher>
               <includeFailedBuilds>true</includeFailedBuilds>

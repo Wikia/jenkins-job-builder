@@ -53,7 +53,6 @@
       <notificationLevel>ALL</notificationLevel>
       <dynamicTriggerConfiguration>True</dynamicTriggerConfiguration>
       <triggerConfigURL>http://myhost/mytrigger</triggerConfigURL>
-      <triggerInformationAction/>
       <allowTriggeringUnreviewedPatches>true</allowTriggeringUnreviewedPatches>
       <triggerOnEvents>
         <com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.events.PluginPatchsetCreatedEvent>

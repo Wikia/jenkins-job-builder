@@ -65,15 +65,6 @@ before being read in as string data. This allows job-templates to use this tag
 to include scripts from files without needing to escape braces in the original
 file.
 
-.. warning::
-
-    When used as a macro ``!include-raw-escape:`` should only be used if
-    parameters are passed into the escaped file and you would like to escape
-    those parameters. If the file does not have any jjb parameters passed into
-    it then ``!include-raw:`` should be used instead otherwise you will run
-    into an interesting issue where ``include-raw-escape:`` actually adds
-    additional curly braces around existing curly braces. For example
-    ${PROJECT} becomes ${{PROJECT}} which may break bash scripts.
 
 Examples:
 
@@ -127,29 +118,6 @@ Example:
     on any filename passed via ``!include-raw-escape:`` the tag will be
     automatically converted to ``!include-raw:`` and no escaping will be
     performed.
-
-
-The tag ``!include-jinja2:`` will treat the given string or list of strings as
-filenames to be opened as Jinja2 templates, which should be rendered to a
-string and included in the calling YAML construct.  (This is analogous to the
-templating that will happen with ``!include-raw``.)
-
-Examples:
-
-    .. literalinclude:: /../../tests/yamlparser/fixtures/jinja01.yaml
-
-    contents of jinja01.yaml.inc:
-
-        .. literalinclude:: /../../tests/yamlparser/fixtures/jinja01.yaml.inc
-
-
-The tag ``!j2:`` takes a string and treats it as a Jinja2 template.  It will be
-rendered (with the variables in that context) and included in the calling YAML
-construct.
-
-Examples:
-
-    .. literalinclude:: /../../tests/yamlparser/fixtures/jinja-string01.yaml
 """
 
 import functools
@@ -158,7 +126,6 @@ import logging
 import os
 import re
 
-import jinja2
 import yaml
 from yaml.constructor import BaseConstructor
 from yaml.representer import BaseRepresenter
@@ -319,14 +286,6 @@ class BaseYAMLObject(YAMLObject):
     yaml_dumper = LocalDumper
 
 
-class J2String(BaseYAMLObject):
-    yaml_tag = u'!j2:'
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        return Jinja2Loader(node.value, loader.search_path)
-
-
 class YamlInclude(BaseYAMLObject):
     yaml_tag = u'!include:'
 
@@ -335,7 +294,7 @@ class YamlInclude(BaseYAMLObject):
         for dirname in search_path:
             candidate = os.path.expanduser(os.path.join(dirname, filename))
             if os.path.isfile(candidate):
-                logger.debug("Including file '{0}' from path '{1}'"
+                logger.info("Including file '{0}' from path '{1}'"
                             .format(filename, dirname))
                 return candidate
         return filename
@@ -381,8 +340,8 @@ class YamlInclude(BaseYAMLObject):
         elif isinstance(node, yaml.SequenceNode):
             contents = [cls._from_file(loader, scalar_node)
                         for scalar_node in node.value]
-            if any(isinstance(s, CustomLoader) for s in contents):
-                return CustomLoaderCollection(contents)
+            if any(isinstance(s, LazyLoader) for s in contents):
+                return LazyLoaderCollection(contents)
 
             return u'\n'.join(contents)
         else:
@@ -415,17 +374,6 @@ class YamlIncludeRawEscape(YamlIncludeRaw):
             return loader.escape_callback(data)
 
 
-class YamlIncludeJinja2(YamlIncludeRaw):
-    yaml_tag = u'!include-jinja2:'
-
-    @classmethod
-    def _from_file(cls, loader, node):
-        contents = cls._open_file(loader, node)
-        if isinstance(contents, LazyLoader):
-            return contents
-        return Jinja2Loader(contents, loader.search_path)
-
-
 class DeprecatedTag(BaseYAMLObject):
 
     @classmethod
@@ -450,25 +398,8 @@ class YamlIncludeRawEscapeDeprecated(DeprecatedTag):
     _new = YamlIncludeRawEscape
 
 
-class CustomLoader(object):
-    """Parent class for non-standard loaders."""
-
-
-class Jinja2Loader(CustomLoader):
-    """A loader for Jinja2-templated files."""
-
-    def __init__(self, contents, search_path):
-        self._template = jinja2.Template(contents)
-        self._template.environment.undefined = jinja2.StrictUndefined
-        self._template.environment.loader = jinja2.FileSystemLoader(
-            search_path)
-
-    def format(self, **kwargs):
-        return self._template.render(kwargs)
-
-
-class CustomLoaderCollection(object):
-    """Helper class to format a collection of CustomLoader objects"""
+class LazyLoaderCollection(object):
+    """Helper class to format a collection of LazyLoader objects"""
     def __init__(self, sequence):
         self._data = sequence
 
@@ -476,7 +407,7 @@ class CustomLoaderCollection(object):
         return u'\n'.join(item.format(*args, **kwargs) for item in self._data)
 
 
-class LazyLoader(CustomLoader):
+class LazyLoader(object):
     """Helper class to provide lazy loading of files included using !include*
     tags where the path to the given file contains unresolved placeholders.
     """
@@ -493,10 +424,8 @@ class LazyLoader(CustomLoader):
         return "%s %s" % (self._cls.yaml_tag, self._node.value)
 
     def format(self, *args, **kwargs):
-        node = yaml.ScalarNode(
-            tag=self._node.tag,
-            value=self._node.value.format(*args, **kwargs))
-        return self._cls.from_yaml(self._loader, node)
+        self._node.value = self._node.value.format(*args, **kwargs)
+        return self._cls.from_yaml(self._loader, self._node)
 
 
 def load(stream, **kwargs):

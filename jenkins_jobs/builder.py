@@ -19,6 +19,7 @@ import errno
 import hashlib
 import io
 import logging
+import operator
 import os
 from pprint import pformat
 import re
@@ -27,7 +28,6 @@ import xml.etree.ElementTree as XML
 
 import jenkins
 
-from jenkins_jobs.alphanum import AlphanumSort
 from jenkins_jobs.cache import JobCache
 from jenkins_jobs.constants import MAGIC_MANAGE_STRING
 from jenkins_jobs.parallel import concurrent
@@ -65,61 +65,26 @@ class JenkinsManager(object):
         self._view_list = None
         self._jjb_config = jjb_config
 
-    def _setup_output(self, output, item, config_xml=False):
-        output_dir = output
-        output_fn = os.path.join(output, item)
-        if '/' in item:
-            # in item folder
-            output_fn = os.path.join(output, os.path.normpath(item))
-            output_dir = os.path.dirname(output_fn)
-
-        # if in a folder, re-adding name to the directory here
-        if config_xml:
-            output_dir = os.path.join(
-                output_dir, os.path.basename(item))
-            output_fn = os.path.join(output_dir, 'config.xml')
-
-        if output_dir != output:
-            logger.info("Creating directory %s" % output_dir)
-            try:
-                os.makedirs(output_dir)
-            except OSError:
-                if not os.path.isdir(output_dir):
-                    raise
-
-        return output_fn
-
     @property
     def jobs(self):
         if self._jobs is None:
             # populate jobs
-            self._jobs = self.jenkins.get_all_jobs()
+            self._jobs = self.jenkins.get_jobs()
 
         return self._jobs
 
     @property
     def job_list(self):
         if self._job_list is None:
-            # python-jenkins uses 'fullname' for folder/name combination
-            self._job_list = set(job['fullname'] for job in self.jobs)
+            self._job_list = set(job['name'] for job in self.jobs)
         return self._job_list
-
-    def _job_format(self, job_name):
-        # returns job name or url based on config option
-        if self._jjb_config.builder['print_job_urls']:
-            return self._jjb_config.jenkins['url'] + \
-                '/job/' + '/job/'.join(job_name.split('/'))
-        else:
-            return job_name
 
     def update_job(self, job_name, xml):
         if self.is_job(job_name):
-            logger.info("Reconfiguring jenkins job {0}".format(
-                self._job_format(job_name)))
+            logger.info("Reconfiguring jenkins job {0}".format(job_name))
             self.jenkins.reconfig_job(job_name, xml)
         else:
-            logger.info("Creating jenkins job {0}".format(
-                self._job_format(job_name)))
+            logger.info("Creating jenkins job {0}".format(job_name))
             self.jenkins.create_job(job_name, xml)
 
     def is_job(self, job_name):
@@ -147,7 +112,7 @@ class JenkinsManager(object):
             plugins_list = self.jenkins.get_plugins().values()
 
         except jenkins.JenkinsException as e:
-            if re.search("(Connection refused|Forbidden)", str(e)):
+            if re.search("Connection refused", str(e)):
                 logger.warning(
                     "Unable to retrieve Jenkins Plugin Info from {0},"
                     " using default empty plugins info list.".format(
@@ -156,7 +121,7 @@ class JenkinsManager(object):
                                  'version': '',
                                  'longName': ''}]
             else:
-                raise
+                raise e
         logger.debug("Jenkins Plugin Info {0}".format(pformat(plugins_list)))
 
         return plugins_list
@@ -189,18 +154,17 @@ class JenkinsManager(object):
         if keep is None:
             keep = []
         for job in jobs:
-            # python-jenkins stores the folder and name as 'fullname'
-            if job['fullname'] not in keep:
-                if self.is_managed(job['fullname']):
+            if job['name'] not in keep:
+                if self.is_managed(job['name']):
                     logger.info("Removing obsolete jenkins job {0}"
-                                .format(job['fullname']))
-                    self.delete_job(job['fullname'])
+                                .format(job['name']))
+                    self.delete_job(job['name'])
                     deleted_jobs += 1
                 else:
                     logger.info("Not deleting unmanaged jenkins job %s",
-                                job['fullname'])
+                                job['name'])
             else:
-                logger.debug("Keeping job %s", job['fullname'])
+                logger.debug("Keeping job %s", job['name'])
         return deleted_jobs
 
     def delete_jobs(self, jobs):
@@ -230,12 +194,11 @@ class JenkinsManager(object):
             logger.debug("'{0}' has not changed".format(job.name))
         return changed
 
-    def update_jobs(self, xml_jobs, output=None, n_workers=None,
-                    config_xml=False):
+    def update_jobs(self, xml_jobs, output=None, n_workers=None):
         orig = time.time()
 
         logger.info("Number of jobs generated:  %d", len(xml_jobs))
-        xml_jobs.sort(key=AlphanumSort)
+        xml_jobs.sort(key=operator.attrgetter('name'))
 
         if (output and not hasattr(output, 'write') and
                 not os.path.isdir(output)):
@@ -267,8 +230,7 @@ class JenkinsManager(object):
                         raise
                     continue
 
-                output_fn = self._setup_output(output, job.name, config_xml)
-
+                output_fn = os.path.join(output, job.name)
                 logger.debug("Writing XML to '{0}'".format(output_fn))
                 with io.open(output_fn, 'w', encoding='utf-8') as f:
                     f.write(job.output().decode('utf-8'))
@@ -382,12 +344,11 @@ class JenkinsManager(object):
             logger.info("Creating jenkins view {0}".format(view_name))
             self.jenkins.create_view(view_name, xml)
 
-    def update_views(self, xml_views, output=None, n_workers=None,
-                     config_xml=False):
+    def update_views(self, xml_views, output=None, n_workers=None):
         orig = time.time()
 
         logger.info("Number of views generated:  %d", len(xml_views))
-        xml_views.sort(key=AlphanumSort)
+        xml_views.sort(key=operator.attrgetter('name'))
 
         if output:
             # ensure only wrapped once
@@ -410,8 +371,7 @@ class JenkinsManager(object):
                         raise
                     continue
 
-                output_fn = self._setup_output(output, view.name, config_xml)
-
+                output_fn = os.path.join(output, view.name)
                 logger.debug("Writing XML to '{0}'".format(output_fn))
                 with io.open(output_fn, 'w', encoding='utf-8') as f:
                     f.write(view.output().decode('utf-8'))

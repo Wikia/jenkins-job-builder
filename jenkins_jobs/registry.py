@@ -23,7 +23,6 @@ import types
 
 from jenkins_jobs.errors import JenkinsJobsException
 from jenkins_jobs.formatter import deep_format
-from jenkins_jobs.local_yaml import Jinja2Loader
 
 __all__ = [
     "ModuleRegistry"
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleRegistry(object):
-    _entry_points_cache = {}
+    entry_points_cache = {}
 
     def __init__(self, jjb_config, plugins_list=None):
         self.modules = []
@@ -65,7 +64,7 @@ class ModuleRegistry(object):
             mapped to its plugin info dictionary.
             """
             version = plugin_info.get('version', '0')
-            plugin_info['version'] = re.sub(r'(.*)-(?:SNAPSHOT|BETA).*',
+            plugin_info['version'] = re.sub(r'(.*)-(?:SNAPSHOT|BETA)',
                                             r'\g<1>.preview', version)
 
             aliases = []
@@ -161,26 +160,19 @@ class ModuleRegistry(object):
         if isinstance(component, dict):
             # The component is a singleton dictionary of name: dict(args)
             name, component_data = next(iter(component.items()))
-            if template_data or isinstance(component_data, Jinja2Loader):
+            if template_data:
                 # Template data contains values that should be interpolated
-                # into the component definition.  To handle Jinja2 templates
-                # that don't contain any variables, we also deep format those.
-                try:
-                    component_data = deep_format(
-                        component_data, template_data,
-                        self.jjb_config.yamlparser['allow_empty_variables'])
-                except Exception:
-                    logging.error(
-                        "Failure formatting component ('%s') data '%s'",
-                        name, component_data)
-                    raise
+                # into the component definition
+                component_data = deep_format(
+                    component_data, template_data,
+                    self.jjb_config.yamlparser['allow_empty_variables'])
         else:
             # The component is a simple string name, eg "run-tests"
             name = component
             component_data = {}
 
         # Look for a component function defined in an entry point
-        eps = self._entry_points_cache.get(component_list_type)
+        eps = ModuleRegistry.entry_points_cache.get(component_list_type)
         if eps is None:
             module_eps = []
             # auto build entry points by inferring from base component_types
@@ -232,7 +224,7 @@ class ModuleRegistry(object):
                 eps[module_ep.name] = module_ep
 
             # cache both sets of entry points
-            self._entry_points_cache[component_list_type] = eps
+            ModuleRegistry.entry_points_cache[component_list_type] = eps
             logger.debug("Cached entry point group %s = %s",
                          component_list_type, eps)
 

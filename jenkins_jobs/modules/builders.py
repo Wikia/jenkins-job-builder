@@ -37,12 +37,8 @@ Example::
 """
 
 import logging
-import sys
 import xml.etree.ElementTree as XML
 
-import six
-
-from jenkins_jobs.errors import is_sequence
 from jenkins_jobs.errors import InvalidAttributeError
 from jenkins_jobs.errors import JenkinsJobsException
 from jenkins_jobs.errors import MissingAttributeError
@@ -67,36 +63,16 @@ def shell(registry, xml_parent, data):
     """yaml: shell
     Execute a shell command.
 
-    There are two ways of configuring the builder, with a plain string to
-    execute:
-
     :arg str parameter: the shell command to execute
-
-    Or with a mapping that allows other parameters to be passed:
-
-    :arg str command: the shell command to execute
-    :arg int unstable-return:
-        the shell exit code to interpret as an unstable build result
 
     Example:
 
     .. literalinclude:: /../../tests/builders/fixtures/shell.yaml
        :language: yaml
 
-    .. literalinclude::
-        /../../tests/builders/fixtures/shell-unstable-return.yaml
-       :language: yaml
     """
     shell = XML.SubElement(xml_parent, 'hudson.tasks.Shell')
-    if isinstance(data, six.string_types):
-        XML.SubElement(shell, 'command').text = data
-    else:
-        mappings = [
-            ('command', 'command', None),
-            ('unstable-return', 'unstableReturn', 0),
-
-        ]
-        convert_mapping_to_xml(shell, data, mappings, fail_required=True)
+    XML.SubElement(shell, 'command').text = data
 
 
 def python(registry, xml_parent, data):
@@ -213,27 +189,19 @@ def change_assembly_version(registry, xml_parent, data):
     :arg str version: Set the new version number for replace (default 1.0.0)
     :arg str assemblyFile: The file name to search (default AssemblyInfo.cs)
 
-    Minimal Example:
+    Example:
 
     .. literalinclude::
-        /../../tests/builders/fixtures/changeassemblyversion-minimal.yaml
-       :language: yaml
-
-    Full Example:
-
-    .. literalinclude::
-        /../../tests/builders/fixtures/changeassemblyversion-full.yaml
+        /../../tests/builders/fixtures/changeassemblyversion001.yaml
        :language: yaml
     """
 
     cav_builder_tag = ('org.jenkinsci.plugins.changeassemblyversion.'
                        'ChangeAssemblyVersion')
     cav = XML.SubElement(xml_parent, cav_builder_tag)
-    mappings = [
-        ('version', 'task', '1.0.0'),
-        ('assembly-file', 'assemblyFile', 'AssemblyInfo.cs'),
-    ]
-    convert_mapping_to_xml(cav, data, mappings, fail_required=True)
+    XML.SubElement(cav, 'task').text = data.get('version', '1.0.0')
+    XML.SubElement(cav, 'assemblyFile').text = str(
+        data.get('assembly-file', 'AssemblyInfo.cs'))
 
 
 def fingerprint(registry, xml_parent, data):
@@ -306,28 +274,30 @@ def ant(registry, xml_parent, data):
     """
     ant = XML.SubElement(xml_parent, 'hudson.tasks.Ant')
 
-    mappings = []
     if type(data) is str:
         # Support for short form: -ant: "target"
         data = {'targets': data}
     for setting, value in sorted(data.items()):
         if setting == 'targets':
-            mappings.append(('', 'targets', value))
+            targets = XML.SubElement(ant, 'targets')
+            targets.text = value
         if setting == 'buildfile':
-            mappings.append(('', 'buildFile', value))
+            buildfile = XML.SubElement(ant, 'buildFile')
+            buildfile.text = value
         if setting == 'properties':
-            properties = value
+            properties = data['properties']
             prop_string = ''
             for prop, val in properties.items():
                 prop_string += "%s=%s\n" % (prop, val)
-            mappings.append(('', 'properties', prop_string))
+            prop_element = XML.SubElement(ant, 'properties')
+            prop_element.text = prop_string
         if setting == 'java-opts':
-            jopt_string = ' '.join(value)
-            mappings.append(('', 'antOpts', jopt_string))
+            javaopts = data['java-opts']
+            jopt_string = ' '.join(javaopts)
+            jopt_element = XML.SubElement(ant, 'antOpts')
+            jopt_element.text = jopt_string
 
-    mappings.append(('ant-name', 'antName', 'default'))
-
-    convert_mapping_to_xml(ant, data, mappings, fail_required=True)
+    XML.SubElement(ant, 'antName').text = data.get('ant-name', 'default')
 
 
 def trigger_remote(registry, xml_parent, data):
@@ -356,8 +326,6 @@ def trigger_remote(registry, xml_parent, data):
         block (default 10)
     :arg str connection-retry-limit: number of connection attempts to remote
         Jenkins server before giving up. (default 5)
-    :arg bool enhanced-logging: if this option is enabled,
-        the console output of the remote job is also logged. (default false)
     :arg str predefined-parameters: predefined parameters to send to the remote
         job when triggering it (optional)
     :arg str property-file: file in workspace of current job containing
@@ -374,25 +342,38 @@ def trigger_remote(registry, xml_parent, data):
                               'org.jenkinsci.plugins.'
                               'ParameterizedRemoteTrigger.'
                               'RemoteBuildConfiguration')
+    XML.SubElement(triggerr,
+                   'remoteJenkinsName').text = data.get('remote-jenkins-name')
+    XML.SubElement(triggerr, 'token').text = data.get('token', '')
 
-    mappings = [
-        ('remote-jenkins-name', 'remoteJenkinsName', None),
-        ('token', 'token', ''),
-        ('job', 'job', None),
-        ('should-not-fail-build', 'shouldNotFailBuild', False),
-        ('poll-interval', 'pollInterval', 10),
-        ('connection-retry-limit', 'connectionRetryLimit', 5),
-        ('enhanced-logging', 'enhancedLogging', False),
-        ('prevent-remote-build-queue', 'preventRemoteBuildQueue', False),
-        ('block', 'blockBuildUntilComplete', True),
-    ]
-    convert_mapping_to_xml(triggerr, data, mappings, fail_required=True)
+    for attribute in ['job', 'remote-jenkins-name']:
+        if attribute not in data:
+            raise MissingAttributeError(attribute, "builders.trigger-remote")
+        if data[attribute] == '':
+            raise InvalidAttributeError(attribute,
+                                        data[attribute],
+                                        "builders.trigger-remote")
 
-    mappings = []
+    XML.SubElement(triggerr, 'job').text = data.get('job')
+
+    XML.SubElement(triggerr, 'shouldNotFailBuild').text = str(
+        data.get('should-not-fail-build', False)).lower()
+
+    XML.SubElement(triggerr,
+                   'pollInterval').text = str(data.get('poll-interval', 10))
+    XML.SubElement(triggerr, 'connectionRetryLimit').text = str(
+        data.get('connection-retry-limit', 5))
+
+    XML.SubElement(triggerr, 'preventRemoteBuildQueue').text = str(
+        data.get('prevent-remote-build-queue', False)).lower()
+
+    XML.SubElement(triggerr, 'blockBuildUntilComplete').text = str(
+        data.get('block', True)).lower()
+
     if 'predefined-parameters' in data:
-        parameters = data.get('predefined-parameters', '')
-        XML.SubElement(triggerr, 'parameters').text = parameters
-        params_list = parameters.split("\n")
+        parameters = XML.SubElement(triggerr, 'parameters')
+        parameters.text = data.get('predefined-parameters', '')
+        params_list = parameters.text.split("\n")
 
         parameter_list = XML.SubElement(triggerr, 'parameterList')
         for param in params_list:
@@ -402,14 +383,13 @@ def trigger_remote(registry, xml_parent, data):
             tmp.text = param
 
     if 'property-file' in data and data['property-file'] != '':
-        mappings.append(('', 'loadParamsFromFile', 'true'))
-        mappings.append(('property-file', 'parameterFile', None))
+        XML.SubElement(triggerr, 'loadParamsFromFile').text = 'true'
+        XML.SubElement(triggerr,
+                       'parameterFile').text = data.get('property-file')
     else:
-        mappings.append(('', 'loadParamsFromFile', 'false'))
+        XML.SubElement(triggerr, 'loadParamsFromFile').text = 'false'
 
-    mappings.append(('', 'overrideAuth', 'false'))
-
-    convert_mapping_to_xml(triggerr, data, mappings, fail_required=True)
+    XML.SubElement(triggerr, 'overrideAuth').text = "false"
 
 
 def trigger_builds(registry, xml_parent, data):
@@ -565,20 +545,19 @@ def trigger_builds(registry, xml_parent, data):
             params = XML.SubElement(tconfigs,
                                     'hudson.plugins.parameterizedtrigger.'
                                     'FileBuildParameters')
-            mapping = [
-                ('property-file', 'propertiesFile', None),
-                ('property-file-fail-on-missing',
-                    'failTriggerOnMissing', True)]
-            convert_mapping_to_xml(params,
-                project_def, mapping, fail_required=True)
+            propertiesFile = XML.SubElement(params, 'propertiesFile')
+            propertiesFile.text = project_def['property-file']
+            failTriggerOnMissing = XML.SubElement(params,
+                                                  'failTriggerOnMissing')
+            failTriggerOnMissing.text = str(project_def.get(
+                'property-file-fail-on-missing', True)).lower()
 
         if 'predefined-parameters' in project_def:
             params = XML.SubElement(tconfigs,
                                     'hudson.plugins.parameterizedtrigger.'
                                     'PredefinedBuildParameters')
-            mapping = [('predefined-parameters', 'properties', None)]
-            convert_mapping_to_xml(params,
-                project_def, mapping, fail_required=True)
+            properties = XML.SubElement(params, 'properties')
+            properties.text = project_def['predefined-parameters']
 
         if 'bool-parameters' in project_def:
             params = XML.SubElement(tconfigs,
@@ -589,29 +568,23 @@ def trigger_builds(registry, xml_parent, data):
                 param = XML.SubElement(configs,
                                        'hudson.plugins.parameterizedtrigger.'
                                        'BooleanParameterConfig')
-                mapping = [
-                    ('name', 'name', None),
-                    ('value', 'value', False)]
-                convert_mapping_to_xml(param,
-                    bool_param, mapping, fail_required=True)
+                XML.SubElement(param, 'name').text = str(bool_param['name'])
+                XML.SubElement(param, 'value').text = str(
+                    bool_param.get('value', False)).lower()
 
         if 'node-label-name' in project_def and 'node-label' in project_def:
             node = XML.SubElement(tconfigs, 'org.jvnet.jenkins.plugins.'
                                   'nodelabelparameter.parameterizedtrigger.'
                                   'NodeLabelBuildParameter')
-            mapping = [
-                ('node-label-name', 'name', None),
-                ('node-label', 'nodeLabel', None)]
-            convert_mapping_to_xml(node,
-                project_def, mapping, fail_required=True)
+            XML.SubElement(node, 'name').text = project_def['node-label-name']
+            XML.SubElement(node, 'nodeLabel').text = project_def['node-label']
 
         if 'restrict-matrix-project' in project_def:
             params = XML.SubElement(tconfigs,
                                     'hudson.plugins.parameterizedtrigger.'
                                     'matrix.MatrixSubsetBuildParameters')
-            mapping = [('restrict-matrix-project', 'filter', None)]
-            convert_mapping_to_xml(params,
-                project_def, mapping, fail_required=True)
+            XML.SubElement(params, 'filter').text = project_def[
+                'restrict-matrix-project']
 
         if(len(list(tconfigs)) == 0):
             tconfigs.set('class', 'java.util.Collections$EmptyList')
@@ -642,47 +615,60 @@ def trigger_builds(registry, xml_parent, data):
                         fconfigs,
                         'hudson.plugins.parameterizedtrigger.'
                         'BinaryFileParameterFactory')
-                    mapping = [('parameter-name', 'parameterName', None)]
-                    convert_mapping_to_xml(params,
-                        factory, mapping, fail_required=True)
-
+                    parameterName = XML.SubElement(params, 'parameterName')
+                    parameterName.text = factory['parameter-name']
                 if (factory['factory'] == 'filebuild' or
                         factory['factory'] == 'binaryfile'):
-                    mapping = [
-                        ('file-pattern', 'filePattern', None),
-                        ('no-files-found-action',
-                            'noFilesFoundAction', 'SKIP', supported_actions)]
-                    convert_mapping_to_xml(params,
-                        factory, mapping, fail_required=True)
-
+                    filePattern = XML.SubElement(params, 'filePattern')
+                    filePattern.text = factory['file-pattern']
+                    noFilesFoundAction = XML.SubElement(
+                        params,
+                        'noFilesFoundAction')
+                    noFilesFoundActionValue = str(factory.get(
+                        'no-files-found-action', 'SKIP'))
+                    if noFilesFoundActionValue not in supported_actions:
+                        raise InvalidAttributeError('no-files-found-action',
+                                                    noFilesFoundActionValue,
+                                                    supported_actions)
+                    noFilesFoundAction.text = noFilesFoundActionValue
                 if factory['factory'] == 'counterbuild':
                     params = XML.SubElement(
                         fconfigs,
                         'hudson.plugins.parameterizedtrigger.'
                         'CounterBuildParameterFactory')
-                    mapping = [('from', 'from', None),
-                               ('to', 'to', None),
-                               ('step', 'step', None),
-                               ('parameters', 'paramExpr', ''),
-                               ('validation-fail',
-                                   'validationFail',
-                                   'FAIL', supported_actions)]
-                    convert_mapping_to_xml(params,
-                        factory, mapping, fail_required=True)
-
+                    fromProperty = XML.SubElement(params, 'from')
+                    fromProperty.text = str(factory['from'])
+                    toProperty = XML.SubElement(params, 'to')
+                    toProperty.text = str(factory['to'])
+                    stepProperty = XML.SubElement(params, 'step')
+                    stepProperty.text = str(factory['step'])
+                    paramExpr = XML.SubElement(params, 'paramExpr')
+                    paramExpr.text = str(factory.get(
+                        'parameters', ''))
+                    validationFail = XML.SubElement(params, 'validationFail')
+                    validationFailValue = str(factory.get(
+                        'validation-fail', 'FAIL'))
+                    if validationFailValue not in supported_actions:
+                        raise InvalidAttributeError('validation-fail',
+                                                    validationFailValue,
+                                                    supported_actions)
+                    validationFail.text = validationFailValue
                 if factory['factory'] == 'allnodesforlabel':
                     params = XML.SubElement(
                         fconfigs,
                         'org.jvnet.jenkins.plugins.nodelabelparameter.'
                         'parameterizedtrigger.'
                         'AllNodesForLabelBuildParameterFactory')
-                    mapping = [('name', 'name', ''),
-                               ('node-label', 'nodeLabel', None),
-                               ('ignore-offline-nodes',
-                                   'ignoreOfflineNodes', True)]
-                    convert_mapping_to_xml(params,
-                        factory, mapping, fail_required=True)
-
+                    nameProperty = XML.SubElement(params, 'name')
+                    nameProperty.text = str(factory.get(
+                        'name', ''))
+                    nodeLabel = XML.SubElement(params, 'nodeLabel')
+                    nodeLabel.text = str(factory['node-label'])
+                    ignoreOfflineNodes = XML.SubElement(
+                        params,
+                        'ignoreOfflineNodes')
+                    ignoreOfflineNodes.text = str(factory.get(
+                        'ignore-offline-nodes', True)).lower()
                 if factory['factory'] == 'allonlinenodes':
                     params = XML.SubElement(
                         fconfigs,
@@ -696,11 +682,14 @@ def trigger_builds(registry, xml_parent, data):
         else:
             projects.text = project_def['project']
 
-        mapping = [('', 'condition', 'ALWAYS'),
-                   ('', 'triggerWithNoParameters', False),
-                   ('', 'buildAllNodesWithLabel', False)]
-        convert_mapping_to_xml(tconfig, {}, mapping, fail_required=True)
-
+        condition = XML.SubElement(tconfig, 'condition')
+        condition.text = 'ALWAYS'
+        trigger_with_no_params = XML.SubElement(tconfig,
+                                                'triggerWithNoParameters')
+        trigger_with_no_params.text = 'false'
+        build_all_nodes_with_label = XML.SubElement(tconfig,
+                                                    'buildAllNodesWithLabel')
+        build_all_nodes_with_label.text = 'false'
         block = project_def.get('block', False)
         if block:
             block = XML.SubElement(tconfig, 'block')
@@ -728,13 +717,13 @@ def trigger_builds(registry, xml_parent, data):
                                                 tvalue,
                                                 supported_threshold_values)
                 th = XML.SubElement(block, txmltag)
-                mapping = [('name', 'name', None),
-                           ('ordinal', 'ordinal', None),
-                           ('color', 'color', None),
-                           ('', 'completeBuild', True)]
-                convert_mapping_to_xml(th,
-                hudson_model.THRESHOLDS[tvalue.upper()],
-                mapping, fail_required=True)
+                XML.SubElement(th, 'name').text = hudson_model.THRESHOLDS[
+                    tvalue.upper()]['name']
+                XML.SubElement(th, 'ordinal').text = hudson_model.THRESHOLDS[
+                    tvalue.upper()]['ordinal']
+                XML.SubElement(th, 'color').text = hudson_model.THRESHOLDS[
+                    tvalue.upper()]['color']
+                XML.SubElement(th, 'completeBuild').text = "true"
 
     # If configs is empty, remove the entire tbuilder tree.
     if(len(configs) == 0):
@@ -757,8 +746,7 @@ def builders_from(registry, xml_parent, data):
     """
     pbs = XML.SubElement(xml_parent,
                          'hudson.plugins.templateproject.ProxyBuilder')
-    mapping = [('', 'projectName', data)]
-    convert_mapping_to_xml(pbs, {}, mapping, fail_required=True)
+    XML.SubElement(pbs, 'projectName').text = data
 
 
 def http_request(registry, xml_parent, data):
@@ -820,7 +808,7 @@ def http_request(registry, xml_parent, data):
        :language: yaml
 
     .. literalinclude::
-       ../../tests/builders/fixtures/http-request-full.yaml
+       ../../tests/builders/fixtures/http-request-complete.yaml
        :language: yaml
     """
 
@@ -882,13 +870,14 @@ def inject(registry, xml_parent, data):
     """
     eib = XML.SubElement(xml_parent, 'EnvInjectBuilder')
     info = XML.SubElement(eib, 'info')
-    mapping = [
-        ('properties-file', 'propertiesFilePath', None),
-        ('properties-content', 'propertiesContent', None),
-        ('script-file', 'scriptFilePath', None),
-        ('script-content', 'scriptContent', None),
-    ]
-    convert_mapping_to_xml(info, data, mapping, fail_required=False)
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'propertiesFilePath', data.get('properties-file'))
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'propertiesContent', data.get('properties-content'))
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'scriptFilePath', data.get('script-file'))
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'scriptContent', data.get('script-content'))
 
 
 def kmap(registry, xml_parent, data):
@@ -973,61 +962,51 @@ def artifact_resolver(registry, xml_parent, data):
 
     :arg bool fail-on-error: Whether to fail the build on error (default false)
     :arg bool repository-logging: Enable repository logging (default false)
-    :arg str target-directory: Where to resolve artifacts to (required)
+    :arg str target-directory: Where to resolve artifacts to
     :arg list artifacts: list of artifacts to resolve
 
         :Artifact:
-            * **group-id** (`str`) -- Group ID of the artifact (required)
-            * **artifact-id** (`str`) -- Artifact ID of the artifact (required)
-            * **version** (`str`) -- Version of the artifact (required)
+            * **group-id** (`str`) -- Group ID of the artifact
+            * **artifact-id** (`str`) -- Artifact ID of the artifact
+            * **version** (`str`) -- Version of the artifact
             * **classifier** (`str`) -- Classifier of the artifact (default '')
             * **extension** (`str`) -- Extension of the artifact
               (default 'jar')
             * **target-file-name** (`str`) -- What to name the artifact
               (default '')
 
-    Minimal Example:
+    Example:
 
-    .. literalinclude::
-        ../../tests/builders/fixtures/artifact-resolver-minimal.yaml
-       :language: yaml
-
-    Full Example:
-
-    .. literalinclude::
-        ../../tests/builders/fixtures/artifact-resolver-full.yaml
+    .. literalinclude:: ../../tests/builders/fixtures/artifact-resolver.yaml
        :language: yaml
     """
-    ar = XML.SubElement(
-        xml_parent,
-        'org.jvnet.hudson.plugins.repositoryconnector.ArtifactResolver')
-    mapping = [
-        ('target-directory', 'targetDirectory', None),
-        ('fail-on-error', 'failOnError', False),
-        ('repository-logging', 'enableRepoLogging', False),
-        ('', 'snapshotUpdatePolicy', 'never'),
-        ('', 'releaseUpdatePolicy', 'never'),
-        ('', 'snapshotChecksumPolicy', 'warn'),
-        ('', 'releaseChecksumPolicy', 'warn'),
-    ]
-    convert_mapping_to_xml(ar, data, mapping, fail_required=True)
-
-    artifact_top = XML.SubElement(ar, 'artifacts')
+    ar = XML.SubElement(xml_parent,
+                        'org.jvnet.hudson.plugins.repositoryconnector.'
+                        'ArtifactResolver')
+    XML.SubElement(ar, 'targetDirectory').text = data['target-directory']
+    artifacttop = XML.SubElement(ar, 'artifacts')
     artifacts = data['artifacts']
-    artifacts_mapping = [
-        ('group-id', 'groupId', None),
-        ('artifact-id', 'artifactId', None),
-        ('version', 'version', None),
-        ('classifier', 'classifier', ''),
-        ('extension', 'extension', 'jar'),
-        ('target-file-name', 'targetFileName', ''),
-    ]
     for artifact in artifacts:
-        rcartifact = XML.SubElement(
-            artifact_top,
-            'org.jvnet.hudson.plugins.repositoryconnector.Artifact')
-        convert_mapping_to_xml(
-            rcartifact, artifact, artifacts_mapping, fail_required=True)
+        rcartifact = XML.SubElement(artifacttop,
+                                    'org.jvnet.hudson.plugins.'
+                                    'repositoryconnector.Artifact')
+        XML.SubElement(rcartifact, 'groupId').text = artifact['group-id']
+        XML.SubElement(rcartifact, 'artifactId').text = artifact['artifact-id']
+        XML.SubElement(rcartifact, 'classifier').text = artifact.get(
+            'classifier', '')
+        XML.SubElement(rcartifact, 'version').text = artifact['version']
+        XML.SubElement(rcartifact, 'extension').text = artifact.get(
+            'extension', 'jar')
+        XML.SubElement(rcartifact, 'targetFileName').text = artifact.get(
+            'target-file-name', '')
+    XML.SubElement(ar, 'failOnError').text = str(data.get(
+        'fail-on-error', False)).lower()
+    XML.SubElement(ar, 'enableRepoLogging').text = str(data.get(
+        'repository-logging', False)).lower()
+    XML.SubElement(ar, 'snapshotUpdatePolicy').text = 'never'
+    XML.SubElement(ar, 'releaseUpdatePolicy').text = 'never'
+    XML.SubElement(ar, 'snapshotChecksumPolicy').text = 'warn'
+    XML.SubElement(ar, 'releaseChecksumPolicy').text = 'warn'
 
 
 def doxygen(registry, xml_parent, data):
@@ -1065,7 +1044,7 @@ def gradle(registry, xml_parent, data):
     <Gradle+Plugin>`.
 
     :arg str tasks: List of tasks to execute
-    :arg str gradle-name: Use a custom gradle name (default '')
+    :arg str gradle-name: Use a custom gradle name (optional)
     :arg bool wrapper: use gradle wrapper (default false)
     :arg bool executable: make gradlew executable (default false)
     :arg list switches: Switches for gradle, can have multiples
@@ -1076,6 +1055,10 @@ def gradle(registry, xml_parent, data):
         root directory, specify the path (relative to the module
         root) here, such as ${workspace}/parent/ instead of just
         ${workspace}.
+    :arg bool use-workspace-as-home: If true, Gradle will write to $HOME/.gradle
+     by for GRADLE_USER_HOME. For a multi-executor slave in Jenkins,
+      setting the environment variable localized files to the workspace
+      avoid collisions accessing gradle cache.
 
     Example:
 
@@ -1083,23 +1066,21 @@ def gradle(registry, xml_parent, data):
        :language: yaml
     """
     gradle = XML.SubElement(xml_parent, 'hudson.plugins.gradle.Gradle')
-
     XML.SubElement(gradle, 'description').text = ''
-
-    mappings = [
-        ('build-file', 'buildFile', 'build.gradle'),
-        ('tasks', 'tasks', None),
-        ('root-build-script-dir', 'rootBuildScriptDir', ''),
-        ('gradle-name', 'gradleName', ''),
-        ('wrapper', 'useWrapper', False),
-        ('executable', 'makeExecutable', False),
-        ('use-root-dir', 'fromRootBuildScriptDir', False),
-    ]
-    convert_mapping_to_xml(gradle, data, mappings, fail_required=True)
-
-    XML.SubElement(gradle, 'switches').text = '\n'.join(
-        data.get('switches', []))
-
+    XML.SubElement(gradle, 'tasks').text = data['tasks']
+    XML.SubElement(gradle, 'buildFile').text = ''
+    XML.SubElement(gradle, 'rootBuildScriptDir').text = data.get(
+        'root-build-script-dir', '')
+    XML.SubElement(gradle, 'gradleName').text = data.get(
+        'gradle-name', '')
+    XML.SubElement(gradle, 'useWrapper').text = str(data.get(
+        'wrapper', False)).lower()
+    XML.SubElement(gradle, 'makeExecutable').text = str(data.get(
+        'executable', False)).lower()
+    switch_string = '\n'.join(data.get('switches', []))
+    XML.SubElement(gradle, 'switches').text = switch_string
+    XML.SubElement(gradle, 'fromRootBuildScriptDir').text = str(data.get(
+        'use-root-dir', False)).lower()
     XML.SubElement(gradle, 'useWorkspaceAsHome').text = str(data.get(
         'use-workspace-as-home', False)).lower()
 
@@ -1113,12 +1094,12 @@ def _groovy_common_scriptSource(data):
         raise JenkinsJobsException("Use just one of 'command' or 'file'")
 
     if 'command' in data:
-        mapping = [('command', 'command', None)]
-        convert_mapping_to_xml(scriptSource, data, mapping, fail_required=True)
+        command = XML.SubElement(scriptSource, 'command')
+        command.text = str(data['command'])
         scriptSource.set('class', 'hudson.plugins.groovy.StringScriptSource')
     elif 'file' in data:
-        mapping = [('file', 'scriptFile', None)]
-        convert_mapping_to_xml(scriptSource, data, mapping, fail_required=True)
+        scriptFile = XML.SubElement(scriptSource, 'scriptFile')
+        scriptFile.text = str(data['file'])
         scriptSource.set('class', 'hudson.plugins.groovy.FileScriptSource')
     else:
         raise JenkinsJobsException("A groovy command or file is required")
@@ -1201,12 +1182,9 @@ def system_groovy(registry, xml_parent, data):
     root_tag = 'hudson.plugins.groovy.SystemGroovy'
     sysgroovy = XML.SubElement(xml_parent, root_tag)
     sysgroovy.append(_groovy_common_scriptSource(data))
-
-    mapping = [
-        ('bindings', 'bindings', ''),
-        ('class-path', 'classpath', ''),
-    ]
-    convert_mapping_to_xml(sysgroovy, data, mapping, fail_required=True)
+    XML.SubElement(sysgroovy, 'bindings').text = str(data.get('bindings', ""))
+    XML.SubElement(sysgroovy, 'classpath').text = str(
+        data.get('class-path', ""))
 
 
 def batch(registry, xml_parent, data):
@@ -1465,11 +1443,8 @@ def conditional_step(registry, xml_parent, data):
                            (required)
     ================== ====================================================
 
-    Examples:
+    Example:
 
-    .. literalinclude::
-        /../../tests/builders/fixtures/conditional-step-multiple-steps.yaml
-       :language: yaml
     .. literalinclude::
         /../../tests/builders/fixtures/conditional-step-success-failure.yaml
        :language: yaml
@@ -1495,7 +1470,7 @@ def conditional_step(registry, xml_parent, data):
         /../../tests/builders/fixtures/conditional-step-and.yaml
        :language: yaml
     """
-    def build_condition(cdata, cond_root_tag, condition_tag):
+    def build_condition(cdata, cond_root_tag):
         kind = cdata['condition-kind']
         ctag = XML.SubElement(cond_root_tag, condition_tag)
         core_prefix = 'org.jenkins_ci.plugins.run_condition.core.'
@@ -1506,18 +1481,23 @@ def conditional_step(registry, xml_parent, data):
             ctag.set('class', core_prefix + 'NeverRun')
         elif kind == "boolean-expression":
             ctag.set('class', core_prefix + 'BooleanCondition')
-            mapping = [('condition-expression', 'token', None)]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            try:
+                XML.SubElement(ctag, "token").text = (
+                    cdata['condition-expression'])
+            except KeyError:
+                raise MissingAttributeError('condition-expression')
         elif kind == "build-cause":
             ctag.set('class', core_prefix + 'CauseCondition')
             cause_list = ('USER_CAUSE', 'SCM_CAUSE', 'TIMER_CAUSE',
                           'CLI_CAUSE', 'REMOTE_CAUSE', 'UPSTREAM_CAUSE',
                           'FS_CAUSE', 'URL_CAUSE', 'IVY_CAUSE',
                           'SCRIPT_CAUSE', 'BUILDRESULT_CAUSE')
-            mapping = [
-                ('cause', 'buildCause', 'USER_CAUSE', cause_list),
-                ('exclusive-cause', "exclusiveCause", False)]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            cause_name = cdata.get('cause', 'USER_CAUSE')
+            if cause_name not in cause_list:
+                raise InvalidAttributeError('cause', cause_name, cause_list)
+            XML.SubElement(ctag, "buildCause").text = cause_name
+            XML.SubElement(ctag, "exclusiveCause").text = str(cdata.get(
+                'exclusive-cause', False)).lower()
         elif kind == "day-of-week":
             ctag.set('class', core_prefix + 'DayCondition')
             day_selector_class_prefix = core_prefix + 'DayCondition$'
@@ -1540,28 +1520,29 @@ def conditional_step(registry, xml_parent, data):
                 days = ['SUN', 'MON', 'TUES', 'WED', 'THURS', 'FRI', 'SAT']
                 for day_no, day in enumerate(days, 1):
                     day_tag = XML.SubElement(days_tag, day_tag_text)
-                    mapping = [
-                        ('', 'day', day_no),
-                        (day, "selected", False),
-                    ]
-                    convert_mapping_to_xml(day_tag,
-                        inp_days, mapping, fail_required=True)
-            mapping = [('use-build-time', "useBuildTime", False)]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+                    XML.SubElement(day_tag, "day").text = str(day_no)
+                    XML.SubElement(day_tag, "selected").text = str(
+                        inp_days.get(day, False)).lower()
+            XML.SubElement(ctag, "useBuildTime").text = str(cdata.get(
+                'use-build-time', False)).lower()
         elif kind == "execution-node":
             ctag.set('class', core_prefix + 'NodeCondition')
             allowed_nodes_tag = XML.SubElement(ctag, "allowedNodes")
-            for node in cdata['nodes']:
-                mapping = [('', "string", node)]
-                convert_mapping_to_xml(allowed_nodes_tag,
-                    cdata, mapping, fail_required=True)
+            try:
+                nodes_list = cdata['nodes']
+            except KeyError:
+                raise MissingAttributeError('nodes')
+            for node in nodes_list:
+                node_tag = XML.SubElement(allowed_nodes_tag, "string")
+                node_tag.text = node
         elif kind == "strings-match":
             ctag.set('class', core_prefix + 'StringsMatchCondition')
-            mapping = [
-                ('condition-string1', "arg1", ''),
-                ('condition-string2', "arg2", ''),
-                ('condition-case-insensitive', "ignoreCase", False)]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            XML.SubElement(ctag, "arg1").text = cdata.get(
+                'condition-string1', '')
+            XML.SubElement(ctag, "arg2").text = cdata.get(
+                'condition-string2', '')
+            XML.SubElement(ctag, "ignoreCase").text = str(cdata.get(
+                'condition-case-insensitive', False)).lower()
         elif kind == "current-status":
             ctag.set('class', core_prefix + 'StatusCondition')
             wr = XML.SubElement(ctag, 'worstResult')
@@ -1570,44 +1551,43 @@ def conditional_step(registry, xml_parent, data):
                 raise InvalidAttributeError('condition-worst', wr_name,
                                             hudson_model.THRESHOLDS.keys())
             wr_threshold = hudson_model.THRESHOLDS[wr_name]
-            mapping = [
-                ('name', 'name', None),
-                ('ordinal', 'ordinal', None),
-                ('color', 'color', 'color'),
-                ('complete', 'completeBuild', None)]
-            convert_mapping_to_xml(wr,
-                wr_threshold, mapping, fail_required=True)
+            XML.SubElement(wr, "name").text = wr_threshold['name']
+            XML.SubElement(wr, "ordinal").text = wr_threshold['ordinal']
+            XML.SubElement(wr, "color").text = wr_threshold['color']
+            XML.SubElement(wr, "completeBuild").text = str(
+                wr_threshold['complete']).lower()
+
             br = XML.SubElement(ctag, 'bestResult')
             br_name = cdata.get('condition-best', 'SUCCESS')
             if br_name not in hudson_model.THRESHOLDS:
                 raise InvalidAttributeError('condition-best', br_name,
                                             hudson_model.THRESHOLDS.keys())
             br_threshold = hudson_model.THRESHOLDS[br_name]
-            mapping = [
-                ('name', 'name', None),
-                ('ordinal', 'ordinal', None),
-                ('color', 'color', 'color'),
-                ('complete', 'completeBuild', None)]
-            convert_mapping_to_xml(br,
-                br_threshold, mapping, fail_required=True)
+            XML.SubElement(br, "name").text = br_threshold['name']
+            XML.SubElement(br, "ordinal").text = br_threshold['ordinal']
+            XML.SubElement(br, "color").text = br_threshold['color']
+            XML.SubElement(br, "completeBuild").text = str(
+                wr_threshold['complete']).lower()
         elif kind == "shell":
             ctag.set('class',
                      'org.jenkins_ci.plugins.run_condition.contributed.'
                      'ShellCondition')
-            mapping = [('condition-command', 'command', '')]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            XML.SubElement(ctag, "command").text = cdata.get(
+                'condition-command', '')
         elif kind == "windows-shell":
             ctag.set('class',
                      'org.jenkins_ci.plugins.run_condition.contributed.'
                      'BatchFileCondition')
-            mapping = [('condition-command', 'command', '')]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            XML.SubElement(ctag, "command").text = cdata.get(
+                'condition-command', '')
         elif kind == "file-exists" or kind == "files-match":
             if kind == "file-exists":
                 ctag.set('class', core_prefix + 'FileExistsCondition')
-                mapping = [('condition-filename', 'file', None)]
-                convert_mapping_to_xml(ctag, cdata, mapping,
-                    fail_required=True)
+                try:
+                    XML.SubElement(ctag, "file").text = (
+                        cdata['condition-filename'])
+                except KeyError:
+                    raise MissingAttributeError('condition-filename')
             else:
                 ctag.set('class', core_prefix + 'FilesMatchCondition')
                 XML.SubElement(ctag, "includes").text = ",".join(cdata.get(
@@ -1629,10 +1609,11 @@ def conditional_step(registry, xml_parent, data):
                                                 basedir_classes[basedir])
         elif kind == "num-comp":
             ctag.set('class', core_prefix + 'NumericalComparisonCondition')
-            mapping = [
-                ('lhs', 'lhs', None),
-                ('rhs', 'rhs', None)]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            try:
+                XML.SubElement(ctag, "lhs").text = cdata['lhs']
+                XML.SubElement(ctag, "rhs").text = cdata['rhs']
+            except KeyError as e:
+                raise MissingAttributeError(e.args[0])
             comp_class_prefix = core_prefix + 'NumericalComparisonCondition$'
             comp_classes = {
                 'less-than': comp_class_prefix + 'LessThan',
@@ -1650,27 +1631,27 @@ def conditional_step(registry, xml_parent, data):
                                                    comp_classes[comp])
         elif kind == "regex-match":
             ctag.set('class', core_prefix + 'ExpressionCondition')
-            mapping = [
-                ('regex', 'expression', ''),
-                ('label', 'label', '')]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            XML.SubElement(ctag, "expression").text = cdata.get('regex', '')
+            XML.SubElement(ctag, "label").text = cdata.get('label', '')
         elif kind == "time":
             ctag.set('class', core_prefix + 'TimeCondition')
-            mapping = [
-                ('earliest-hour', 'earliestHours', '09'),
-                ('earliest-min', 'earliestMinutes', '00'),
-                ('latest-hour', 'latestHours', '17'),
-                ('latest-min', 'latestMinutes', '30'),
-                ('use-build-time', 'useBuildTime', False)
-            ]
-            convert_mapping_to_xml(ctag, cdata, mapping, fail_required=True)
+            XML.SubElement(ctag, "earliestHours").text = cdata.get(
+                'earliest-hour', '09')
+            XML.SubElement(ctag, "earliestMinutes").text = cdata.get(
+                'earliest-min', '00')
+            XML.SubElement(ctag, "latestHours").text = cdata.get(
+                'latest-hour', '17')
+            XML.SubElement(ctag, "latestMinutes").text = cdata.get(
+                'latest-min', '30')
+            XML.SubElement(ctag, "useBuildTime").text = str(cdata.get(
+                'use-build-time', False)).lower()
         elif kind == "not":
             ctag.set('class', logic_prefix + 'Not')
             try:
                 notcondition = cdata['condition-operand']
             except KeyError:
                 raise MissingAttributeError('condition-operand')
-            build_condition(notcondition, ctag, "condition")
+            build_condition(notcondition, ctag)
         elif kind == "and" or "or":
             if kind == "and":
                 ctag.set('class', logic_prefix + 'And')
@@ -1686,8 +1667,7 @@ def conditional_step(registry, xml_parent, data):
             for condition in conditions_list:
                 conditions_container_tag = XML.SubElement(conditions_tag,
                                                           container_tag_text)
-                build_condition(condition, conditions_container_tag,
-                                "condition")
+                build_condition(condition, conditions_container_tag)
 
     def build_step(parent, step):
         for edited_node in create_builders(registry, step):
@@ -1712,7 +1692,7 @@ def conditional_step(registry, xml_parent, data):
         steps_parent = root_tag
         condition_tag = "condition"
 
-    build_condition(data, root_tag, condition_tag)
+    build_condition(data, root_tag)
     evaluation_classes_pkg = 'org.jenkins_ci.plugins.run_condition'
     evaluation_classes = {
         'fail': evaluation_classes_pkg + '.BuildStepRunner$Fail',
@@ -1760,61 +1740,6 @@ def maven_builder(registry, xml_parent, data):
     convert_mapping_to_xml(maven, data, mapping, fail_required=True)
 
 
-def jira_issue_updater(registry, xml_parent, data):
-    """yaml: jenkins-jira-issue-updater
-    Updates issues in Atlassian JIRA as part of a Jenkins job.
-
-    Requires the Jenkins :jenkins-wiki:`Jira Issue Updater Plugin
-    <Jira+Issue+Updater+Plugin>`.
-
-    :arg str base-url: The base url of the rest API. (default '')
-    :arg str username: The Jira username (required)
-    :arg str password: The Jira password (required)
-    :arg str jql: The JQL used to select the issues to update. (required)
-    :arg str workflow: The Name of the workflow action to be executed.
-        (default '')
-    :arg str comment: The Jira comment to be added. (default '')
-    :arg str custom-Id: The Jira custom field to be edited. (default '')
-    :arg str custom-value: Jira custom field value. (default '')
-    :arg bool fail-if-error: Fail this build if JQL returns error.
-        ((default false)
-    :arg bool fail-if-no-match: Fail this build if no issues are matched.
-        (default false)
-    :arg bool fail-if-no-connection: Fail this build if can't connect to Jira.
-        (default false)
-
-    Minimal Example:
-
-    .. literalinclude::
-        /../../tests/builders/fixtures/jenkins-jira-issue-updater-minimal.yaml
-        :language: yaml
-
-    Full Example:
-
-    .. literalinclude::
-        /../../tests/builders/fixtures/jenkins-jira-issue-updater-full.yaml
-        :language: yaml
-    """
-    issue_updater = XML.SubElement(xml_parent, 'info.bluefloyd.jenkins.'
-                                               'IssueUpdatesBuilder')
-    issue_updater.set('plugin', 'jenkins-jira-issue-updater')
-
-    mapping = [
-        ('base-url', 'restAPIUrl', ''),
-        ('username', 'userName', None),
-        ('password', 'password', None),
-        ('jql', 'jql', None),
-        ('workflow', 'workflowActionName', ''),
-        ('comment', 'comment', ''),
-        ('custom-Id', 'customFieldId', ''),
-        ('custom-value', 'customFieldValue', ''),
-        ('fail-if-error', 'failIfJqlFails', False),
-        ('fail-if-no-match', 'failIfNoIssuesReturned', False),
-        ('fail-if-no-connection', 'failIfNoJiraConnection', False)
-    ]
-    convert_mapping_to_xml(issue_updater, data, mapping, fail_required=True)
-
-
 def maven_target(registry, xml_parent, data):
     """yaml: maven-target
     Execute top-level Maven targets.
@@ -1856,12 +1781,12 @@ def maven_target(registry, xml_parent, data):
     XML.SubElement(maven, 'targets').text = data['goals']
     prop_string = '\n'.join(data.get('properties', []))
     XML.SubElement(maven, 'properties').text = prop_string
-
-    mapping = [
-        ('maven-version', 'mavenName', None),
-        ('pom', 'pom', None),
-        ('private-repository', 'usePrivateRepository', False)]
-    convert_mapping_to_xml(maven, data, mapping, fail_required=False)
+    if 'maven-version' in data:
+        XML.SubElement(maven, 'mavenName').text = str(data['maven-version'])
+    if 'pom' in data:
+        XML.SubElement(maven, 'pom').text = str(data['pom'])
+    use_private = str(data.get('private-repository', False)).lower()
+    XML.SubElement(maven, 'usePrivateRepository').text = use_private
     if 'java-opts' in data:
         javaoptions = ' '.join(data.get('java-opts', []))
         XML.SubElement(maven, 'jvmOptions').text = javaoptions
@@ -1880,10 +1805,6 @@ def multijob(registry, xml_parent, data):
     :arg str condition: when to trigger the other job.
         Can be: 'SUCCESSFUL', 'UNSTABLE', 'COMPLETED', 'FAILURE', 'ALWAYS'.
         (default 'SUCCESSFUL')
-    :arg str execution-type: Define how to run jobs in a phase:
-        sequentially or parallel.
-        Can be: 'PARALLEL', 'SEQUENTIALLY'
-        (default 'PARALLEL')
 
     :arg list projects: list of projects to include in the MultiJob phase
 
@@ -1929,16 +1850,15 @@ def multijob(registry, xml_parent, data):
     """
     builder = XML.SubElement(xml_parent, 'com.tikal.jenkins.plugins.multijob.'
                                          'MultiJobBuilder')
+    XML.SubElement(builder, 'phaseName').text = data['name']
+
+    condition = data.get('condition', 'SUCCESSFUL')
     conditions_available = ('SUCCESSFUL', 'UNSTABLE', 'COMPLETED', 'FAILURE',
                             'ALWAYS')
-    job_execution_type_available = ('PARALLEL', 'SEQUENTIALLY')
-    mapping = [
-        ('name', 'phaseName', None),
-        ('condition', 'continuationCondition',
-            'SUCCESSFUL', conditions_available),
-        ('execution-type', 'executionType',
-            'PARALLEL', job_execution_type_available)]
-    convert_mapping_to_xml(builder, data, mapping, fail_required=True)
+    if condition not in conditions_available:
+        raise JenkinsJobsException('Multijob condition must be one of: %s.'
+                                   % ', '.join(conditions_available))
+    XML.SubElement(builder, 'continuationCondition').text = condition
 
     phaseJobs = XML.SubElement(builder, 'phaseJobs')
 
@@ -1947,24 +1867,24 @@ def multijob(registry, xml_parent, data):
     for project in data.get('projects', []):
         phaseJob = XML.SubElement(phaseJobs, 'com.tikal.jenkins.plugins.'
                                              'multijob.PhaseJobsConfig')
-        mapping = [
-            ('name', 'jobName', None),
-            # Pass through the current build params
-            ('current-parameters', 'currParams', False)]
-        convert_mapping_to_xml(phaseJob, project, mapping, fail_required=True)
+
+        XML.SubElement(phaseJob, 'jobName').text = project['name']
+
+        # Pass through the current build params
+        currParams = str(project.get('current-parameters', False)).lower()
+        XML.SubElement(phaseJob, 'currParams').text = currParams
+
         # Pass through other params
         configs = XML.SubElement(phaseJob, 'configs')
 
         nodeLabelName = project.get('node-label-name')
         nodeLabel = project.get('node-label')
-        if nodeLabelName and nodeLabel:
+        if (nodeLabelName and nodeLabel):
             node = XML.SubElement(
                 configs, 'org.jvnet.jenkins.plugins.nodelabelparameter.'
                          'parameterizedtrigger.NodeLabelBuildParameter')
-            mapping = [
-                ('', 'name', nodeLabelName),
-                ('', 'nodeLabel', nodeLabel)]
-            convert_mapping_to_xml(node, project, mapping, fail_required=True)
+            XML.SubElement(node, 'name').text = nodeLabelName
+            XML.SubElement(node, 'nodeLabel').text = nodeLabel
 
         # Node parameter
         if project.get('node-parameters', False):
@@ -1976,8 +1896,8 @@ def multijob(registry, xml_parent, data):
             param = XML.SubElement(configs,
                                    'hudson.plugins.git.'
                                    'GitRevisionBuildParameters')
-            mapping = [('', 'combineQueuedCommits', False)]
-            convert_mapping_to_xml(param, project, mapping, fail_required=True)
+            combine = XML.SubElement(param, 'combineQueuedCommits')
+            combine.text = 'false'
 
         # Properties File
         properties_file = project.get('property-file', False)
@@ -1985,10 +1905,12 @@ def multijob(registry, xml_parent, data):
             param = XML.SubElement(configs,
                                    'hudson.plugins.parameterizedtrigger.'
                                    'FileBuildParameters')
-            mapping = [
-                ('', 'propertiesFile', properties_file),
-                ('', 'failTriggerOnMissing', True)]
-            convert_mapping_to_xml(param, project, mapping, fail_required=True)
+
+            propertiesFile = XML.SubElement(param, 'propertiesFile')
+            propertiesFile.text = properties_file
+
+            failOnMissing = XML.SubElement(param, 'failTriggerOnMissing')
+            failOnMissing.text = 'true'
 
         # Predefined Parameters
         predefined_parameters = project.get('predefined-parameters', False)
@@ -1996,24 +1918,24 @@ def multijob(registry, xml_parent, data):
             param = XML.SubElement(configs,
                                    'hudson.plugins.parameterizedtrigger.'
                                    'PredefinedBuildParameters')
-            mapping = [('', 'properties', predefined_parameters)]
-            convert_mapping_to_xml(param, project, mapping, fail_required=True)
+            properties = XML.SubElement(param, 'properties')
+            properties.text = predefined_parameters
 
         # Abort all other job
-        mapping = [('abort-all-job', 'abortAllJob', False)]
-        convert_mapping_to_xml(phaseJob,
-            project, mapping, fail_required=True)
+        abortAllJob = str(project.get('abort-all-job', False)).lower()
+        XML.SubElement(phaseJob, 'abortAllJob').text = abortAllJob
 
         # Retry job
         retry = project.get('retry', False)
         if retry:
+            try:
+                rules_path = str(retry['strategy-path'])
+                XML.SubElement(phaseJob, 'parsingRulesPath').text = rules_path
+            except KeyError:
+                raise MissingAttributeError('strategy-path')
             max_retry = retry.get('max-retry', 0)
-            mapping = [
-                ('strategy-path', 'parsingRulesPath', None),
-                ('', 'maxRetries', int(max_retry)),
-                ('', 'enableRetryStrategy', True)]
-            convert_mapping_to_xml(phaseJob,
-                retry, mapping, fail_required=True)
+            XML.SubElement(phaseJob, 'maxRetries').text = str(int(max_retry))
+            XML.SubElement(phaseJob, 'enableRetryStrategy').text = 'true'
         else:
             XML.SubElement(phaseJob, 'enableRetryStrategy').text = 'false'
 
@@ -2022,27 +1944,33 @@ def multijob(registry, xml_parent, data):
             subset = XML.SubElement(
                 configs, 'hudson.plugins.parameterizedtrigger.'
                          'matrix.MatrixSubsetBuildParameters')
-            mapping = [('restrict-matrix-project', 'filter', None)]
-            convert_mapping_to_xml(subset,
-                project, mapping, fail_required=True)
+            XML.SubElement(
+                subset, 'filter').text = project['restrict-matrix-project']
 
         # Enable Condition
         enable_condition = project.get('enable-condition')
         if enable_condition is not None:
-            mapping = [
-                ('', 'enableCondition', True),
-                ('', 'condition', enable_condition)]
-            convert_mapping_to_xml(phaseJob,
-                project, mapping, fail_required=True)
+            XML.SubElement(
+                phaseJob,
+                'enableCondition'
+            ).text = 'true'
+            XML.SubElement(
+                phaseJob,
+                'condition'
+            ).text = enable_condition
 
         # Kill phase on job status
         kill_status = project.get('kill-phase-on')
         if kill_status is not None:
             kill_status = kill_status.upper()
-            mapping = [('', 'killPhaseOnJobResultCondition',
-                kill_status, kill_status_list)]
-            convert_mapping_to_xml(phaseJob,
-                project, mapping, fail_required=True)
+            if kill_status not in kill_status_list:
+                raise JenkinsJobsException(
+                    'multijob kill-phase-on must be one of: %s'
+                    + ','.join(kill_status_list))
+            XML.SubElement(
+                phaseJob,
+                'killPhaseOnJobResultCondition'
+            ).text = kill_status
 
 
 def config_file_provider(registry, xml_parent, data):
@@ -2501,28 +2429,36 @@ def shining_panda(registry, xml_parent, data):
                        (pluginelementpart, buildenvdict[buildenv]))
 
     if buildenv in ('python', 'virtualenv'):
-        python_mapping = [
-            ('python-version', 'pythonName', 'System-CPython-2.7')]
-        convert_mapping_to_xml(t, data, python_mapping, fail_required=True)
+        XML.SubElement(t, 'pythonName').text = data.get("python-version",
+                                                        "System-CPython-2.7")
 
-    if buildenv in 'custom':
-        custom_mapping = [('home', 'home', None)]
-        convert_mapping_to_xml(t, data, custom_mapping, fail_required=True)
-    if buildenv in 'virtualenv':
-        virtualenv_mapping = [
-            ('name', 'home', ''),
-            ('clear', 'clear', False),
-            ('use-distribute', 'useDistribute', False),
-            ('system-site-packages', 'systemSitePackages', False)]
-        convert_mapping_to_xml(t, data, virtualenv_mapping, fail_required=True)
+    if buildenv in ('custom'):
+        try:
+            homevalue = data["home"]
+        except KeyError:
+            raise JenkinsJobsException("'home' argument is required for the"
+                                       " 'custom' environment")
+        XML.SubElement(t, 'home').text = homevalue
+
+    if buildenv in ('virtualenv'):
+        XML.SubElement(t, 'home').text = data.get("name", "")
+        clear = data.get("clear", False)
+        XML.SubElement(t, 'clear').text = str(clear).lower()
+        use_distribute = data.get('use-distribute', False)
+        XML.SubElement(t, 'useDistribute').text = str(use_distribute).lower()
+        system_site_packages = data.get('system-site-packages', False)
+        XML.SubElement(t, 'systemSitePackages').text = str(
+            system_site_packages).lower()
 
     # Common arguments
-    naturelist = ['shell', 'xshell', 'python']
-    mapping = [
-        ('nature', 'nature', 'shell', naturelist),
-        ('command', 'command', ""),
-        ('ignore-exit-code', 'ignoreExitCode', False)]
-    convert_mapping_to_xml(t, data, mapping, fail_required=True)
+    nature = data.get('nature', 'shell')
+    naturetuple = ('shell', 'xshell', 'python')
+    if nature not in naturetuple:
+        raise InvalidAttributeError('nature', nature, naturetuple)
+    XML.SubElement(t, 'nature').text = nature
+    XML.SubElement(t, 'command').text = data.get("command", "")
+    ignore_exit_code = data.get('ignore-exit-code', False)
+    XML.SubElement(t, 'ignoreExitCode').text = str(ignore_exit_code).lower()
 
 
 def tox(registry, xml_parent, data):
@@ -2543,11 +2479,9 @@ def tox(registry, xml_parent, data):
     """
     pluginelement = 'jenkins.plugins.shiningpanda.builders.ToxBuilder'
     t = XML.SubElement(xml_parent, pluginelement)
-    mappings = [
-        ('ini', 'toxIni', 'tox.ini'),
-        ('recreate', 'recreate', False),
-    ]
-    convert_mapping_to_xml(t, data, mappings, fail_required=True)
+    XML.SubElement(t, 'toxIni').text = data.get('ini', 'tox.ini')
+    XML.SubElement(t, 'recreate').text = str(
+        data.get('recreate', False)).lower()
     pattern = data.get('toxenv-pattern')
     if pattern:
         XML.SubElement(t, 'toxenvPattern').text = pattern
@@ -2587,8 +2521,11 @@ def managed_script(registry, xml_parent, data):
         raise InvalidAttributeError('type', step_type, ['script', 'batch'])
     ms = XML.SubElement(xml_parent,
                         'org.jenkinsci.plugins.managedscripts.' + step)
-    mapping = [('script-id', script_tag, None)]
-    convert_mapping_to_xml(ms, data, mapping, fail_required=True)
+    try:
+        script_id = data['script-id']
+    except KeyError:
+        raise MissingAttributeError('script-id')
+    XML.SubElement(ms, script_tag).text = script_id
     args = XML.SubElement(ms, 'buildStepArgs')
     for arg in data.get('args', []):
         XML.SubElement(args, 'string').text = arg
@@ -2701,57 +2638,63 @@ def cmake(registry, xml_parent, data):
     """
 
     BUILD_TYPES = ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel']
+
     cmake = XML.SubElement(xml_parent, 'hudson.plugins.cmake.CmakeBuilder')
 
-    mapping = [
-        ('source-dir', 'sourceDir', None),  # Required parameter
-        ('generator', 'generator', "Unix Makefiles"),
-        ('clean-build-dir', 'cleanBuild', False),
-    ]
-    helpers.convert_mapping_to_xml(cmake, data, mapping, fail_required=True)
+    source_dir = XML.SubElement(cmake, 'sourceDir')
+    try:
+        source_dir.text = data['source-dir']
+    except KeyError:
+        raise MissingAttributeError('source-dir')
 
-    info = registry.get_plugin_info("CMake plugin")
-    # Note: Assume latest version of plugin is preferred config format
-    version = pkg_resources.parse_version(
-        info.get("version", str(sys.maxsize)))
+    XML.SubElement(cmake, 'generator').text = str(
+        data.get('generator', "Unix Makefiles"))
 
+    XML.SubElement(cmake, 'preloadScript').text = str(
+        data.get('preload-script', ''))
+
+    XML.SubElement(cmake, 'cleanBuild').text = str(
+        data.get('clean-build-dir', False)).lower()
+
+    plugin_info = registry.get_plugin_info("CMake plugin")
+    version = pkg_resources.parse_version(plugin_info.get("version", "1.0"))
+
+    # Version 2.x breaks compatibility. So parse the input data differently
+    # based on it:
     if version >= pkg_resources.parse_version("2.0"):
-        mapping_20 = [
-            ('preload-script', 'preloadScript', None),  # Optional parameter
-            ('working-dir', 'workingDir', ''),
-            ('build-type', 'buildType', 'Debug'),
-            ('installation-name', 'installationName', 'InSearchPath'),
-            ('other-arguments', 'toolArgs', ''),
-        ]
-        helpers.convert_mapping_to_xml(
-            cmake, data, mapping_20, fail_required=False)
+        XML.SubElement(cmake, 'workingDir').text = str(
+            data.get('working-dir', ''))
+
+        XML.SubElement(cmake, 'buildType').text = str(
+            data.get('build-type', 'Debug'))
+
+        XML.SubElement(cmake, 'installationName').text = str(
+            data.get('installation-name', 'InSearchPath'))
+
+        XML.SubElement(cmake, 'toolArgs').text = str(
+            data.get('other-arguments', ''))
 
         tool_steps = XML.SubElement(cmake, 'toolSteps')
 
         for step_data in data.get('build-tool-invocations', []):
-            step = XML.SubElement(
-                tool_steps, 'hudson.plugins.cmake.BuildToolStep')
-            step_mapping = [
-                ('use-cmake', 'withCmake', False),
-                ('arguments', 'args', ''),
-                ('environment-variables', 'vars', ''),
-            ]
-            helpers.convert_mapping_to_xml(
-                step, step_data, step_mapping, fail_required=True)
+            tagname = 'hudson.plugins.cmake.BuildToolStep'
+            step = XML.SubElement(tool_steps, tagname)
+
+            XML.SubElement(step, 'withCmake').text = str(
+                step_data.get('use-cmake', False)).lower()
+
+            XML.SubElement(step, 'args').text = str(
+                step_data.get('arguments', ''))
+
+            XML.SubElement(step, 'vars').text = str(
+                step_data.get('environment-variables', ''))
 
     else:
-        mapping_10 = [
-            ('preload-script', 'preloadScript', ''),
-            ('build-dir', 'buildDir', ''),
-            ('install-dir', 'installDir', ''),
-            ('make-command', 'makeCommand', 'make'),
-            ('install-command', 'installCommand', 'make install'),
-            ('other-arguments', 'cmakeArgs', ''),
-            ('custom-cmake-path', 'projectCmakePath', ''),
-            ('clean-install-dir', 'cleanInstallDir', False),
-        ]
-        helpers.convert_mapping_to_xml(
-            cmake, data, mapping_10, fail_required=True)
+        build_dir = XML.SubElement(cmake, 'buildDir')
+        build_dir.text = data.get('build-dir', '')
+
+        install_dir = XML.SubElement(cmake, 'installDir')
+        install_dir.text = data.get('install-dir', '')
 
         # The options buildType and otherBuildType work together on the CMake
         # plugin:
@@ -2765,13 +2708,30 @@ def cmake(registry, xml_parent, data):
         # option, so this was done to simplify it for the JJB user.
         build_type = XML.SubElement(cmake, 'buildType')
         build_type.text = data.get('build-type', BUILD_TYPES[0])
+
         other_build_type = XML.SubElement(cmake, 'otherBuildType')
 
-        if build_type.text not in BUILD_TYPES:
+        if(build_type.text not in BUILD_TYPES):
             other_build_type.text = build_type.text
             build_type.text = BUILD_TYPES[0]
         else:
             other_build_type.text = ''
+
+        make_command = XML.SubElement(cmake, 'makeCommand')
+        make_command.text = data.get('make-command', 'make')
+
+        install_command = XML.SubElement(cmake, 'installCommand')
+        install_command.text = data.get('install-command', 'make install')
+
+        other_cmake_args = XML.SubElement(cmake, 'cmakeArgs')
+        other_cmake_args.text = data.get('other-arguments', '')
+
+        custom_cmake_path = XML.SubElement(cmake, 'projectCmakePath')
+        custom_cmake_path.text = data.get('custom-cmake-path', '')
+
+        clean_install_dir = XML.SubElement(cmake, 'cleanInstallDir')
+        clean_install_dir.text = str(data.get('clean-install-dir',
+                                              False)).lower()
 
         # The plugin generates this tag, but there doesn't seem to be anything
         # that can be configurable by it. Let's keep it to maintain
@@ -2963,12 +2923,11 @@ def ssh_builder(registry, xml_parent, data):
     """
     builder = XML.SubElement(
         xml_parent, 'org.jvnet.hudson.plugins.SSHBuilder')
-
-    mapping = [
-        ('ssh-user-ip', 'siteName', None),
-        ('command', 'command', None),
-    ]
-    convert_mapping_to_xml(builder, data, mapping, fail_required=True)
+    try:
+        XML.SubElement(builder, 'siteName').text = str(data['ssh-user-ip'])
+        XML.SubElement(builder, 'command').text = str(data['command'])
+    except KeyError as e:
+        raise MissingAttributeError("'%s'" % e.args[0])
 
 
 def sonar(registry, xml_parent, data):
@@ -3052,16 +3011,11 @@ def xcode(registry, xml_parent, data):
     :arg str version-marketing: The value to use for
         CFBundleShortVersionString. Leave blank to use project's
         marketing number. (default '')
-    :arg str ipa-export-method: The export method of the .app to generate the
-        .ipa file.  Should be one in 'development', 'ad-hoc', 'enterprise',
-        or 'app-store'. (default '')
     :arg str ipa-version: A pattern for the ipa file name. You may use
         ${VERSION} and ${BUILD_DATE} (yyyy.MM.dd) in this string.
         (default '')
     :arg str ipa-output: The output directory for the .ipa file,
         relative to the build directory. (default '')
-    :arg development-team-id: The ID of the Apple development team to use to
-        sign the IPA (default '')
     :arg str keychain-name: The globally configured keychain to unlock for
         this build. (default '')
     :arg str keychain-path: The path of the keychain to use to sign the IPA.
@@ -3080,37 +3034,48 @@ def xcode(registry, xml_parent, data):
     if data.get('developer-profile'):
         profile = XML.SubElement(xml_parent, 'au.com.rayh.'
                                  'DeveloperProfileLoader')
-        mapping = [('developer-profile', 'id', None)]
-        convert_mapping_to_xml(profile, data, mapping, fail_required=False)
+        XML.SubElement(profile, 'id').text = str(
+            data['developer-profile'])
 
     xcode = XML.SubElement(xml_parent, 'au.com.rayh.XCodeBuilder')
 
-    mappings = [
-        ('clean-build', 'cleanBeforeBuild', False),
-        ('clean-test-reports', 'cleanTestReports', False),
-        ('archive', 'generateArchive', False),
-        ('configuration', 'configuration', 'Release'),
-        ('configuration-directory', 'configurationBuildDir', ''),
-        ('target', 'target', ''),
-        ('sdk', 'sdk', ''),
-        ('symroot', 'symRoot', ''),
-        ('project-path', 'xcodeProjectPath', ''),
-        ('project-file', 'xcodeProjectFile', ''),
-        ('build-arguments', 'xcodebuildArguments', ''),
-        ('schema', 'xcodeSchema', ''),
-        ('workspace', 'xcodeWorkspaceFile', ''),
-        ('profile', 'embeddedProfileFile', ''),
-        ('codesign-id', 'codeSigningIdentity', ''),
-        ('allow-failing', 'allowFailingBuildResults', False),
-    ]
-    convert_mapping_to_xml(xcode, data, mappings, fail_required=True)
+    XML.SubElement(xcode, 'cleanBeforeBuild').text = str(
+        data.get('clean-build', False)).lower()
+    XML.SubElement(xcode, 'cleanTestReports').text = str(
+        data.get('clean-test-reports', False)).lower()
+    XML.SubElement(xcode, 'generateArchive').text = str(
+        data.get('archive', False)).lower()
+
+    XML.SubElement(xcode, 'configuration').text = str(
+        data.get('configuration', 'Release'))
+    XML.SubElement(xcode, 'configurationBuildDir').text = str(
+        data.get('configuration-directory', ''))
+    XML.SubElement(xcode, 'target').text = str(data.get('target', ''))
+    XML.SubElement(xcode, 'sdk').text = str(data.get('sdk', ''))
+    XML.SubElement(xcode, 'symRoot').text = str(data.get('symroot', ''))
+
+    XML.SubElement(xcode, 'xcodeProjectPath').text = str(
+        data.get('project-path', ''))
+    XML.SubElement(xcode, 'xcodeProjectFile').text = str(
+        data.get('project-file', ''))
+    XML.SubElement(xcode, 'xcodebuildArguments').text = str(
+        data.get('build-arguments', ''))
+    XML.SubElement(xcode, 'xcodeSchema').text = str(data.get('schema', ''))
+    XML.SubElement(xcode, 'xcodeWorkspaceFile').text = str(
+        data.get('workspace', ''))
+    XML.SubElement(xcode, 'embeddedProfileFile').text = str(
+        data.get('profile', ''))
+
+    XML.SubElement(xcode, 'codeSigningIdentity').text = str(
+        data.get('codesign-id', ''))
+    XML.SubElement(xcode, 'allowFailingBuildResults').text = str(
+        data.get('allow-failing', False)).lower()
 
     version = XML.SubElement(xcode, 'provideApplicationVersion')
     version_technical = XML.SubElement(xcode,
                                        'cfBundleVersionValue')
     version_marketing = XML.SubElement(xcode,
                                        'cfBundleShortVersionStringValue')
-
     if data.get('version-technical') or data.get('version-marketing'):
         version.text = 'true'
         version_technical.text = data.get('version-technical', '')
@@ -3120,20 +3085,18 @@ def xcode(registry, xml_parent, data):
 
     XML.SubElement(xcode, 'buildIpa').text = str(
         bool(data.get('ipa-version')) or False).lower()
+    XML.SubElement(xcode, 'ipaName').text = data.get('ipa-version', '')
+    XML.SubElement(xcode, 'ipaOutputDirectory').text = str(
+        data.get('ipa-output', ''))
 
-    valid_ipa_export_methods = ['', 'ad-hoc', 'app-store', 'development']
-    mapping = [
-        ('ipa-export-method', 'ipaExportMethod', '',
-            valid_ipa_export_methods),
-        ('ipa-version', 'ipaName', ''),
-        ('ipa-output', 'ipaOutputDirectory', ''),
-        ('development-team-id', 'developmentTeamID', ''),
-        ('keychain-name', 'keychainName', ''),
-        ('keychain-path', 'keychainPath', ''),
-        ('keychain-password', 'keychainPwd', ''),
-        ('keychain-unlock', 'unlockKeychain', False),
-    ]
-    convert_mapping_to_xml(xcode, data, mapping, fail_required=True)
+    XML.SubElement(xcode, 'keychainName').text = str(
+        data.get('keychain-name', ''))
+    XML.SubElement(xcode, 'keychainPath').text = str(
+        data.get('keychain-path', ''))
+    XML.SubElement(xcode, 'keychainPwd').text = str(
+        data.get('keychain-password', ''))
+    XML.SubElement(xcode, 'unlockKeychain').text = str(
+        data.get('keychain-unlock', False)).lower()
 
 
 def sonatype_clm(registry, xml_parent, data):
@@ -3169,7 +3132,7 @@ def sonatype_clm(registry, xml_parent, data):
     Full Example:
 
     .. literalinclude::
-        /../../tests/builders/fixtures/sonatype-clm-full.yaml
+        /../../tests/builders/fixtures/sonatype-clm-complete.yaml
        :language: yaml
     """
     clm = XML.SubElement(xml_parent,
@@ -3284,50 +3247,6 @@ def cloudformation(registry, xml_parent, data):
     for stack in data:
         cloudformation_stack(xml_parent, stack, 'PostBuildStackBean', stacks,
                              region_dict)
-
-
-def jms_messaging(registry, xml_parent, data):
-    """yaml: jms-messaging
-    The JMS Messaging Plugin provides the following functionality:
-     - A build trigger to submit jenkins jobs upon receipt
-       of a matching message.
-     - A builder that may be used to submit a message to the topic
-       upon the completion of a job
-     - A post-build action that may be used to submit a message to the topic
-       upon the completion of a job
-
-
-    JMS Messaging provider types supported:
-        - ActiveMQ
-        - FedMsg
-
-    Requires the Jenkins :jenkins-wiki:`JMS Messaging Plugin
-    Pipeline Plugin <JMS+Messaging+Plugin>`.
-
-    :arg str override-topic: If you need to override the default topic.
-        (default '')
-    :arg str provider-name: Name of message provider setup in the
-        global config. (default '')
-    :arg str msg-type: A message type
-        (default 'CodeQualityChecksDone')
-    :arg str msg-props: Message header to publish. (default '')
-    :arg str msg-content: Message body to publish. (default '')
-
-
-    Full Example:
-
-    .. literalinclude::
-        ../../tests/builders/fixtures/jms-messaging-full.yaml
-       :language: yaml
-
-    Minimal Example:
-
-    .. literalinclude::
-        ../../tests/builders/fixtures/jms-messaging-minimal.yaml
-       :language: yaml
-    """
-    helpers.jms_messaging_common(xml_parent, 'com.redhat.jenkins.plugins.ci.'
-                                             'CIMessageBuilder', data)
 
 
 def openshift_build_verify(registry, xml_parent, data):
@@ -3776,11 +3695,10 @@ def description_setter(registry, xml_parent, data):
     descriptionsetter = XML.SubElement(
         xml_parent,
         'hudson.plugins.descriptionsetter.DescriptionSetterBuilder')
-    mapping = [('regexp', 'regexp', '')]
+    XML.SubElement(descriptionsetter, 'regexp').text = data.get('regexp', '')
     if 'description' in data:
-        mapping.append(('description', 'description', None))
-    convert_mapping_to_xml(
-        descriptionsetter, data, mapping, fail_required=True)
+        XML.SubElement(descriptionsetter, 'description').text = data[
+            'description']
 
 
 def docker_build_publish(parse, xml_parent, data):
@@ -3790,16 +3708,6 @@ def docker_build_publish(parse, xml_parent, data):
 
     :arg str repo-name: Name of repository to push to.
     :arg str repo-tag: Tag for image. (default '')
-    :arg dict server: The docker daemon (optional)
-
-        * **uri** (str): Define the docker server to use. (optional)
-        * **credentials-id** (str): ID of credentials to use to connect
-          (optional)
-    :arg dict registry: Registry to push to
-
-        * **url** (str) repository url to use (optional)
-        * **credentials-id** (str): ID of credentials to use to connect
-          (optional)
     :arg bool no-cache: If build should be cached. (default false)
     :arg bool no-force-pull: Don't update the source image before building when
         it exists locally. (default false)
@@ -3811,13 +3719,9 @@ def docker_build_publish(parse, xml_parent, data):
     :arg str build-context: Project root path for the build, defaults to the
         workspace if not specified. (default '')
 
-    Minimal example:
+    Example:
 
     .. literalinclude:: /../../tests/builders/fixtures/docker-builder001.yaml
-
-    Full example:
-
-    .. literalinclude:: /../../tests/builders/fixtures/docker-builder002.yaml
     """
     db = XML.SubElement(xml_parent,
                         'com.cloudbees.dockerpublish.DockerBuilder')
@@ -3836,32 +3740,6 @@ def docker_build_publish(parse, xml_parent, data):
         ('build-context', 'buildContext', ''),
     ]
     convert_mapping_to_xml(db, data, mapping, fail_required=True)
-
-    mapping = []
-    if 'server' in data:
-        server = XML.SubElement(db, 'server')
-        server.set('plugin', 'docker-commons')
-        server_data = data['server']
-        if 'credentials-id' in server_data:
-            mapping.append(('credentials-id', 'credentialsId', None))
-
-        if 'uri' in server_data:
-            mapping.append(('uri', 'uri', None))
-        convert_mapping_to_xml(
-            server, server_data, mapping, fail_required=True)
-
-    mappings = []
-    if 'registry' in data:
-        registry = XML.SubElement(db, 'registry')
-        registry.set('plugin', 'docker-commons')
-        registry_data = data['registry']
-        if 'credentials-id' in registry_data:
-            mappings.append(('credentials-id', 'credentialsId', None))
-
-        if 'url' in registry_data:
-            mappings.append(('url', 'url', None))
-        convert_mapping_to_xml(
-            registry, registry_data, mappings, fail_required=True)
 
 
 def build_name_setter(registry, xml_parent, data):
@@ -3936,7 +3814,7 @@ def nexus_artifact_uploader(registry, xml_parent, data):
     File Example:
 
     .. literalinclude::
-        /../../tests/builders/fixtures/nexus_artifact_uploader001.yaml
+        /../../tests/builders/fixtures/nexus-artifact-uploader.yaml
        :language: yaml
     """
     nexus_artifact_uploader = XML.SubElement(
@@ -3959,188 +3837,3 @@ def nexus_artifact_uploader(registry, xml_parent, data):
     ]
     convert_mapping_to_xml(
         nexus_artifact_uploader, data, mapping, fail_required=True)
-
-
-def ansible_playbook(parser, xml_parent, data):
-    """yaml: ansible-playbook
-    This plugin allows to execute Ansible tasks as a job build step.
-    Requires the Jenkins :jenkins-wiki:`Ansible Plugin <Ansible+Plugin>`.
-
-    :arg str playbook: Path to the ansible playbook file. The path can be
-        absolute or relative to the job workspace. (required)
-    :arg str inventory-type: The inventory file form (default `path`)
-
-        :inventory-type values:
-            * **path**
-            * **content**
-            * **do-not-specify**
-
-    :arg dict inventory: Inventory data, depends on inventory-type
-
-        :inventory-type == path:
-            * **path** (`str`) -- Path to inventory file.
-
-        :inventory-type == content:
-            * **content** (`str`) -- Content of inventory file.
-            * **dynamic** (`bool`) -- Dynamic inventory is used (default false)
-
-    :arg str hosts: Further limit selected hosts to an additional pattern
-        (default '')
-    :arg str tags-to-run: Only run plays and tasks tagged with these values
-        (default '')
-    :arg str tags-to-skip: Only run plays and tasks whose tags do not match
-        these values (default '')
-    :arg str task-to-start-at: Start the playbook at the task matching this
-        name (default '')
-    :arg int workers: Specify number of parallel processes to use (default 5)
-    :arg str credentials-id: The ID of credentials for the SSH connections.
-        Only private key authentication is supported (default '')
-    :arg bool sudo: Run operations with sudo. It works only when the remote
-        user is sudoer with nopasswd option (default false)
-    :arg str sudo-user: Desired sudo user. "root" is used when this field is
-        empty. (default '')
-    :arg bool unbuffered-output: Skip standard output buffering for the ansible
-        process. The ansible output is directly rendered into the Jenkins
-        console. This option can be usefull for long running operations.
-        (default true)
-    :arg bool colorized-output: Check this box to allow ansible to render ANSI
-        color codes in the Jenkins console. (default false)
-    :arg bool host-key-checking: Check this box to enforce the validation of
-        the hosts SSH server keys. (default false)
-    :arg str additional-parameters: Any additional parameters to pass to the
-        ansible command. (default '')
-    :arg list variables: List of extra variables to be passed to ansible.
-        (optional)
-
-        :variable item:
-            * **name** (`str`) -- Name of variable (required)
-            * **value** (`str`) -- Desired value (default '')
-            * **hidden** (`bool`) -- Hide variable in build log (default false)
-
-    Example:
-
-    .. literalinclude::
-        /../../tests/builders/fixtures/ansible-playbook001.yaml
-       :language: yaml
-
-    OR
-
-    .. literalinclude::
-        /../../tests/builders/fixtures/ansible-playbook002.yaml
-       :language: yaml
-    """
-    plugin = XML.SubElement(
-        xml_parent,
-        'org.jenkinsci.plugins.ansible.AnsiblePlaybookBuilder')
-    try:
-        XML.SubElement(plugin, 'playbook').text = str(data['playbook'])
-    except KeyError as ex:
-        raise MissingAttributeError(ex)
-
-    inventory_types = ('path', 'content', 'do-not-specify')
-    inventory_type = str(
-        data.get('inventory-type', inventory_types[0])).lower()
-
-    inventory = XML.SubElement(plugin, 'inventory')
-    inv_data = data.get('inventory', {})
-    if inventory_type == 'path':
-        inventory.set(
-            'class', 'org.jenkinsci.plugins.ansible.InventoryPath')
-        try:
-            path = inv_data['path']
-        except KeyError:
-            raise MissingAttributeError('inventory[\'path\']')
-        XML.SubElement(inventory, 'path').text = path
-    elif inventory_type == 'content':
-        inventory.set(
-            'class', 'org.jenkinsci.plugins.ansible.InventoryContent')
-        try:
-            content = inv_data['content']
-        except KeyError:
-            raise MissingAttributeError('inventory[\'content\']')
-        XML.SubElement(inventory, 'content').text = content
-        XML.SubElement(inventory, 'dynamic').text = str(
-            inv_data.get('dynamic', False)).lower()
-    elif inventory_type == 'do-not-specify':
-        inventory.set(
-            'class', 'org.jenkinsci.plugins.ansible.InventoryDoNotSpecify')
-    else:
-        raise InvalidAttributeError(
-            'inventory-type', inventory_type, inventory_types)
-    XML.SubElement(plugin, 'limit').text = data.get('hosts', '')
-    XML.SubElement(plugin, 'tags').text = data.get('tags-to-run', '')
-    XML.SubElement(plugin, 'skippedTags').text = data.get('tags-to-skip', '')
-    XML.SubElement(plugin, 'startAtTask').text = data.get(
-        'task-to-start-at', '')
-    XML.SubElement(plugin, 'credentialsId').text = data.get(
-        'credentials-id', '')
-    if data.get('sudo', False):
-        XML.SubElement(plugin, 'sudo').text = 'true'
-        XML.SubElement(plugin, 'sudoUser').text = data.get('sudo-user', '')
-    else:
-        XML.SubElement(plugin, 'sudo').text = 'false'
-    XML.SubElement(plugin, 'forks').text = str(data.get('workers', '5'))
-    XML.SubElement(plugin, 'unbufferedOutput').text = str(
-        data.get('unbuffered-output', True)).lower()
-    XML.SubElement(plugin, 'colorizedOutput').text = str(
-        data.get('colorized-output', False)).lower()
-    XML.SubElement(plugin, 'hostKeyChecking').text = str(
-        data.get('host-key-checking', False)).lower()
-    XML.SubElement(plugin, 'additionalParameters').text = str(
-        data.get('additional-parameters', ''))
-    # Following option is not available from UI
-    XML.SubElement(plugin, 'copyCredentialsInWorkspace').text = 'false'
-    variables = data.get('variables', [])
-    if variables:
-        if not is_sequence(variables):
-            raise InvalidAttributeError(
-                'variables', variables, 'list(dict(name, value, hidden))')
-        variables_elm = XML.SubElement(plugin, 'extraVars')
-        for idx, values in enumerate(variables):
-            if not hasattr(values, 'keys'):
-                raise InvalidAttributeError(
-                    'variables[%s]' % idx, values, 'dict(name, value, hidden)')
-            try:
-                var_name = values['name']
-            except KeyError:
-                raise MissingAttributeError('variables[%s][\'name\']' % idx)
-            value_elm = XML.SubElement(
-                variables_elm, 'org.jenkinsci.plugins.ansible.ExtraVar')
-            XML.SubElement(value_elm, 'key').text = var_name
-            XML.SubElement(value_elm, 'value').text = values.get('value', '')
-            XML.SubElement(value_elm, 'hidden').text = str(
-                values.get('hidden', False)).lower()
-
-
-def nodejs(parser, xml_parent, data):
-    """yaml: nodejs
-    This plugin allows to execute NodeJS scripts as a job build step.
-    Requires the Jenkins :jenkins-wiki:`NodeJS Plugin <NodeJS+Plugin>`.
-
-    :arg str name: NodeJS installation name
-    :arg str script: NodeJS script (required)
-    :arg str config-id: ID of npmrc config file, which is the
-        last field (a 32-digit hexadecimal code) of the path of URL visible
-        after you clicked the file under Jenkins Managed Files.
-
-    Minimal Example:
-
-    .. literalinclude::
-        ../../tests/builders/fixtures/nodejs-minimal.yaml
-       :language: yaml
-
-    Full Example:
-
-    .. literalinclude::
-        ../../tests/builders/fixtures/nodejs-full.yaml
-       :language: yaml
-    """
-    nodejs = XML.SubElement(xml_parent,
-                            'jenkins.plugins.nodejs.NodeJSCommandInterpreter')
-    mapping = [('script', 'command', None)]
-
-    mapping_opt = [('name', 'nodeJSInstallationName', None),
-                   ('config-id', 'configId', None)]
-
-    convert_mapping_to_xml(nodejs, data, mapping, fail_required=True)
-    convert_mapping_to_xml(nodejs, data, mapping_opt, fail_required=False)

@@ -37,7 +37,6 @@
       <notificationLevel/>
       <dynamicTriggerConfiguration>False</dynamicTriggerConfiguration>
       <triggerConfigURL/>
-      <triggerInformationAction/>
       <allowTriggeringUnreviewedPatches>false</allowTriggeringUnreviewedPatches>
       <triggerOnEvents>
         <com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.events.PluginCommentAddedEvent>

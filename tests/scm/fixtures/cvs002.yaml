@@ -2,7 +2,6 @@ scm:
   - cvs:
       repos:
           - root: ":protocol:user@host1:path"
-            compression-level: "1"
             locations:
                 - type: TAG
                   name: "tag name"
@@ -14,6 +13,7 @@ scm:
             excluded-regions:
                 - "pattern1"
                 - "pattern2"
+            compression-level: "1"
           - root: ":protocol:user@host2:path"
             locations:
                 - modules:

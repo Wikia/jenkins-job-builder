@@ -31,8 +31,7 @@ class TestCaseJobCache(base.BaseTestCase):
 
         with mock.patch('jenkins_jobs.builder.JobCache.save') as save_mock:
             with mock.patch('os.path.isfile', return_value=False):
-                with mock.patch('jenkins_jobs.builder.JobCache._lock'):
-                    jenkins_jobs.builder.JobCache("dummy")
+                jenkins_jobs.builder.JobCache("dummy")
             save_mock.assert_called_with()
 
     @mock.patch('jenkins_jobs.builder.JobCache.get_cache_dir',
@@ -44,5 +43,4 @@ class TestCaseJobCache(base.BaseTestCase):
         test_file = os.path.abspath(__file__)
         with mock.patch('os.path.join', return_value=test_file):
             with mock.patch('yaml.load'):
-                with mock.patch('jenkins_jobs.builder.JobCache._lock'):
-                    jenkins_jobs.builder.JobCache("dummy").data = None
+                jenkins_jobs.builder.JobCache("dummy").data = None

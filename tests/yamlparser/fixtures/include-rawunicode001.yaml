@@ -2,9 +2,8 @@
     name: unicode-raw-include-wrapper
     wrappers:
       - pre-scm-buildstep:
-          buildsteps:
-            - shell:
-                !include-raw: include-rawunicode001-cool.sh
+          - shell:
+              !include-raw: include-rawunicode001-cool.sh
 
 - job:
     name: test-unicode-raw-include-wrapper

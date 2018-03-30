@@ -1,6 +1,5 @@
 name: regex-example
 view-type: list
-description: 'description'
 columns:
     - status
     - weather

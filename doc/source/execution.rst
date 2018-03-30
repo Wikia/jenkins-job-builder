@@ -25,7 +25,7 @@ job_builder section
 **include_path**
   (Optional) Can be set to a ':' delimited list of paths, which jenkins
   job builder will search for any files specified by the custom application
-  yaml tags 'include', 'include-raw' and 'include-raw-escape'.
+  yaml tags 'include', 'include-raw' and 'include-raw-escaped'.
 
 **recursive**
   (Optional) If set to True, jenkins job builder will search for job
@@ -51,11 +51,6 @@ job_builder section
   input YAML files. Setting this option to True will replace it with the empty
   string, allowing you to use those strings without having to define all the
   keys it might be using.
-
-**print_job_urls**
-  (Optional) If set to True it will print full jobs urls while updating jobs,
-  so user can be sure which instance was updated. User may click the link to
-  go directly to that job. False by default.
 
 
 jenkins section
@@ -158,14 +153,6 @@ You can also pass JJB a directory containing multiple job definition files::
 which will write XML files to the output directory for all of the jobs
 defined in the defs directory.
 
-If you run::
-
-  jenkins-jobs test /path/to/defs -o /path/to/output --config-xml
-
-the output directory will contain config.xml files similar to the
-internal storage format of Jenkins.  This might allow you to more
-easily compare the output to an existing Jenkins installation.
-
 .. _updating-jobs:
 
 Updating Jobs
@@ -194,13 +181,6 @@ in the host that runs it, and 2 or higher to specify the number of workers to
 use::
 
   jenkins-jobs update --workers 0 /path/to/defs
-
-To update only views or only jobs, simply add the argument
---views-only or --jobs-only after the command::
-
-  jenkins-jobs update --views-only Foo-view
-  jenkins-jobs update --jobs-only Foo-job
-
 
 Passing Multiple Paths
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -325,22 +305,6 @@ To delete jobs/views that only have 'foo' in their name::
 
   jenkins-jobs delete --path ./myjobs \*foo\*
 
-Providing Plugins Info
-^^^^^^^^^^^^^^^^^^^^^^
-With Jenkins LTS 1.651.1+ retrieving plugins info became a secure feature and
-now requires Administrator rights to use [#f2]. This causes JJB to no longer be
-able to work in situations where a user wants to publish jobs to Jenkins but is
-not able to receive the Administrator permissions. In this case we can provide
-a plugins_info.yaml file containing the plugin versions data needed by JJB to
-parse the job templates.
-
-To generate a plugins info, using an account with Administrator rights:
-
-  jenkins-jobs get-plugins-info -o plugins_info.yaml
-
-To run JJB update using the plugins_info.yaml:
-
-  jenkins-jobs update -p plugins_info.yaml ./myjobs
 
 .. _command-reference:
 
@@ -351,11 +315,8 @@ Command Reference
 .. program-output:: jenkins-jobs update --help
 .. program-output:: jenkins-jobs delete-all --help
 .. program-output:: jenkins-jobs delete --help
-.. program-output:: jenkins-jobs get-plugins-info --help
 
 .. rubric:: Footnotes
 .. [#f1] The cache default location is at ``~/.cache/jenkins_jobs``, which
          can be overridden by setting the ``XDG_CACHE_HOME`` environment
          variable.
-.. [#f2] Jenkins Security Advisory affecting plugins info retrieval
-         https://wiki.jenkins-ci.org/display/SECURITY/Jenkins+Security+Advisory+2016-05-11

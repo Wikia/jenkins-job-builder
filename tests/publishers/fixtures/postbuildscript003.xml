@@ -2,7 +2,6 @@
 <project>
   <publishers>
     <org.jenkinsci.plugins.postbuildscript.PostBuildScript>
-      <markBuildUnstable>false</markBuildUnstable>
       <buildSteps>
         <hudson.tasks.Shell>
           <command>echo &quot;Shell execution&quot;</command>
@@ -10,6 +9,7 @@
       </buildSteps>
       <scriptOnlyIfSuccess>true</scriptOnlyIfSuccess>
       <scriptOnlyIfFailure>false</scriptOnlyIfFailure>
+      <markBuildUnstable>false</markBuildUnstable>
       <executeOn>MATRIX</executeOn>
     </org.jenkinsci.plugins.postbuildscript.PostBuildScript>
   </publishers>
