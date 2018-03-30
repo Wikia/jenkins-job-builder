@@ -1,3 +1,8 @@
+- defaults:
+    name: global
+    description: |
+        JJB template: {template-name}
+
 - wrapper:
     name: timeout-wrapper
     wrappers:
@@ -11,18 +16,19 @@
     name: pre-scm-shell-ant
     wrappers:
       - pre-scm-buildstep:
-          - shell: |
-              #!/bin/bash
-              echo "Doing somethiung cool"
-          - shell: |
-              #!/bin/zsh
-              echo "Doing somethin cool with zsh"
-          - ant:
-              targets: "target1 target2"
-              ant-name: "Standard Ant"
-          - inject:
-               properties-file: example.prop
-               properties-content: EXAMPLE=foo-bar
+          buildsteps:
+            - shell: |
+                #!/bin/bash
+                echo "Doing somethiung cool"
+            - shell: |
+                #!/bin/zsh
+                echo "Doing somethin cool with zsh"
+            - ant:
+                targets: "target1 target2"
+                ant-name: "Standard Ant"
+            - inject:
+                properties-file: example.prop
+                properties-content: EXAMPLE=foo-bar
 
 - wrapper:
     name: copy-files
@@ -84,10 +90,11 @@
     version:
         - 1.2
     jobs:
-        - 'complete001_{version}'
+        - 'complete001'
 
 - job-template:
     name: 'complete001_{version}'
+    id: 'complete001'
     scm:
       - gerrit-scm:
          project_pattern: openstack-infra/jenkins-job-builder
@@ -104,4 +111,3 @@
          #!/usr/bin/env python
          #
          print("Doing something cool with python")
-
