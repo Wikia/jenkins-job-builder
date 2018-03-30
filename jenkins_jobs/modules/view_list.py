@@ -30,6 +30,55 @@ to the :ref:`View-list` definition.
     * **filter-queue** (`bool`): Show only included jobs in builder
       queue. (default false)
     * **job-name** (`list`): List of jobs to be included.
+    * **job-filters** (`dict`): Job filters to be included. Requires
+      :jenkins-wiki:`View Job Filters <View+Job+Filters>`
+
+        * **most-recent** (`dict`)
+            :most-recent: * **max-to-include** (`int`): Maximum number of jobs
+                            to include. (default 0)
+                          * **check-start-time** (`bool`): Check job start
+                            time. (default false)
+
+        * **build-duration** (`dict`)
+            :build-duration: * **match-type** ('str'): Jobs that match a filter
+                               to include. (default includeMatched)
+                             * **build-duration-type** ('str'): Duration of the
+                               build. (default Latest)
+                             * **amount-type**: ('str'): Duration in hours,
+                               days or builds. (default Hours)
+                             * **amount**: ('int'): How far back to check.
+                               (default 0)
+                             * **less-than**: ('bool'): Check build duration
+                               less than or more than. (default True)
+                             * **build-duration-minutes**: ('int'): Build
+                               duration minutes. (default 0)
+
+        * **build-trend** (`dict`)
+            :build-trend: * **match-type** ('str'): Jobs that match a filter
+                               to include. (default includeMatched)
+                             * **build-trend-type** ('str'): Duration of the
+                               build. (default Latest)
+                             * **amount-type**: ('str'): Duration in hours,
+                               days or builds. (default Hours)
+                             * **amount**: ('int'): How far back to check.
+                               (default 0)
+                             * **status**: ('str'): Job status.
+                               (default Completed)
+
+        * **job-status** (`dict`)
+            :job-status: * **match-type** ('str'): Jobs that match a filter
+                               to include. (default includeMatched)
+                             * **unstable** ('bool'): Jobs with status
+                               unstable. (default False)
+                             * **failed** ('bool'): Jobs with status
+                               failed. (default False)
+                             * **aborted** ('bool'): Jobs with status
+                               aborted. (default False)
+                             * **disabled** ('bool'): Jobs with status
+                               disabled. (default False)
+                             * **stable** ('bool'): Jobs with status
+                               stable. (default False)
+
     * **columns** (`list`): List of columns to be shown in view.
     * **regex** (`str`): . Regular expression for selecting jobs
       (optional)
@@ -78,7 +127,72 @@ class List(jenkins_jobs.modules.base.Base):
         if jobnames is not None:
             for jobname in jobnames:
                 XML.SubElement(jn_xml, 'string').text = str(jobname)
-        XML.SubElement(root, 'jobFilters')
+
+        job_filter_xml = XML.SubElement(root, 'jobFilters')
+        jobfilters = data.get('job-filters', [])
+
+        for jobfilter in jobfilters:
+            if jobfilter == 'most-recent':
+                mr_xml = XML.SubElement(job_filter_xml,
+                                        'hudson.views.MostRecentJobsFilter')
+                mr_xml.set('plugin', 'view-job-filters')
+                mr_data = jobfilters.get('most-recent')
+                mapping = [
+                    ('max-to-include', 'maxToInclude', '0'),
+                    ('check-start-time', 'checkStartTime', False),
+                ]
+                convert_mapping_to_xml(mr_xml, mr_data, mapping,
+                                       fail_required=True)
+
+            if jobfilter == 'build-duration':
+                bd_xml = XML.SubElement(job_filter_xml,
+                                        'hudson.views.BuildDurationFilter')
+                bd_xml.set('plugin', 'view-job-filters')
+                bd_data = jobfilters.get('build-duration')
+                mapping = [
+                    ('match-type', 'includeExcludeTypeString',
+                        'includeMatched'),
+                    ('build-duration-type', 'buildCountTypeString', 'Latest'),
+                    ('amount-type', 'amountTypeString', 'Hours'),
+                    ('amount', 'amount', '0'),
+                    ('less-than', 'lessThan', True),
+                    ('build-duration-minutes', 'buildDurationMinutes', '0'),
+                ]
+                convert_mapping_to_xml(bd_xml, bd_data, mapping,
+                                       fail_required=True)
+
+            if jobfilter == 'build-trend':
+                bt_xml = XML.SubElement(job_filter_xml,
+                                        'hudson.views.BuildTrendFilter')
+                bt_xml.set('plugin', 'view-job-filters')
+                bt_data = jobfilters.get('build-trend')
+                mapping = [
+                    ('match-type', 'includeExcludeTypeString',
+                        'includeMatched'),
+                    ('build-trend-type', 'buildCountTypeString', 'Latest'),
+                    ('amount-type', 'amountTypeString', 'Hours'),
+                    ('amount', 'amount', '0'),
+                    ('status', 'statusTypeString', 'Completed'),
+                ]
+                convert_mapping_to_xml(bt_xml, bt_data, mapping,
+                                       fail_required=True)
+
+            if jobfilter == 'job-status':
+                js_xml = XML.SubElement(job_filter_xml,
+                                        'hudson.views.JobStatusFilter')
+                js_xml.set('plugin', 'view-job-filters')
+                js_data = jobfilters.get('job-status')
+                mapping = [
+                    ('match-type', 'includeExcludeTypeString',
+                        'includeMatched'),
+                    ('unstable', 'unstable', False),
+                    ('failed', 'failed', False),
+                    ('aborted', 'aborted', False),
+                    ('disabled', 'disabled', False),
+                    ('stable', 'stable', False),
+                ]
+                convert_mapping_to_xml(js_xml, js_data, mapping,
+                                       fail_required=True)
 
         c_xml = XML.SubElement(root, 'columns')
         columns = data.get('columns', [])
