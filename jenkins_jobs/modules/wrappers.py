@@ -2404,14 +2404,23 @@ def vault(registry, xml_parent, data):
 
     wrappers:
       - vault:
-          path: "/path/to/vault"
-          secret-values:
-            - secrete:
-                env-var: XXX
-                vault-key: YYY
-            - secrete:
-                env-var: XXX
-                vault-key: YYY
+          secrets:
+            - path: "/path/to/vault"
+              secret-values:
+                - secret:
+                    env-var: XXX
+                    vault-key: YYY
+                - secret:
+                    env-var: XXX
+                    vault-key: YYY
+            - path: "/another_path/to/vault"
+              secret-values:
+                - secret:
+                    env-var: AAA
+                    vault-key: BBB
+                - secret:
+                    env-var: AAA
+                    vault-key: BBB
     """
     vault = XML.SubElement(xml_parent,
                    'com.datapipe.jenkins.vault.VaultBuildWrapper')
@@ -2419,16 +2428,17 @@ def vault(registry, xml_parent, data):
 
     vaultSecrets = XML.SubElement(vault, 'vaultSecrets')
     XML.SubElement(vault, 'valuesToMask')
-    vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.VaultSecret')
-    XML.SubElement(vaultSecret, 'path').text = str(data.get('path'))
-    if 'secret-values' in data:
+    for secret in data['secrets']:
+        vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.VaultSecret')
+        XML.SubElement(vaultSecret, 'path').text = str(secret.get('path'))
+        if 'secret-values' in secret:
             secreteValues = XML.SubElement(vaultSecret, 'secretValues')
-            for foo in data['secret-values']:
-                for template, params in foo.items():
-                    secrete = XML.SubElement(secreteValues,
-                                              'com.datapipe.jenkins.vault.VaultSecretValue')
-                    XML.SubElement(secrete, 'envVar').text = str(params.get('env-var'))
-                    XML.SubElement(secrete, 'vaultKey').text = str(params.get('vault-key'))
+            for secrete_values in secret['secret-values']:
+                for template, params in secrete_values.items():
+                    secret_var = XML.SubElement(secreteValues,
+                                             'com.datapipe.jenkins.vault.VaultSecretValue')
+                    XML.SubElement(secret_var, 'envVar').text = str(params.get('env-var'))
+                    XML.SubElement(secret_var, 'vaultKey').text = str(params.get('vault-key'))
 
 def github_pull_request(parser, xml_parent, data):
     """yaml: github-pull-request
