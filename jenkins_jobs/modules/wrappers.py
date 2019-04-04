@@ -2407,18 +2407,18 @@ def vault(registry, xml_parent, data):
           secrets:
             - path: "/path/to/vault"
               secret-values:
-                - secrete:
+                - secret:
                     env-var: XXX
                     vault-key: YYY
-                - secrete:
+                - secret:
                     env-var: XXX
                     vault-key: YYY
             - path: "/another_path/to/vault"
               secret-values:
-                - secrete:
+                - secret:
                     env-var: AAA
                     vault-key: BBB
-                - secrete:
+                - secret:
                     env-var: AAA
                     vault-key: BBB
     """
@@ -2428,17 +2428,17 @@ def vault(registry, xml_parent, data):
 
     vaultSecrets = XML.SubElement(vault, 'vaultSecrets')
     XML.SubElement(vault, 'valuesToMask')
-    for secrete in data['secrets']:
+    for secret in data['secrets']:
         vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.VaultSecret')
-        XML.SubElement(vaultSecret, 'path').text = str(secrete.get('path'))
-        if 'secret-values' in secrete:
+        XML.SubElement(vaultSecret, 'path').text = str(secret.get('path'))
+        if 'secret-values' in secret:
             secreteValues = XML.SubElement(vaultSecret, 'secretValues')
-            for secrete_values in secrete['secret-values']:
+            for secrete_values in secret['secret-values']:
                 for template, params in secrete_values.items():
-                    secrete = XML.SubElement(secreteValues,
+                    secret_var = XML.SubElement(secreteValues,
                                              'com.datapipe.jenkins.vault.VaultSecretValue')
-                    XML.SubElement(secrete, 'envVar').text = str(params.get('env-var'))
-                    XML.SubElement(secrete, 'vaultKey').text = str(params.get('vault-key'))
+                    XML.SubElement(secret_var, 'envVar').text = str(params.get('env-var'))
+                    XML.SubElement(secret_var, 'vaultKey').text = str(params.get('vault-key'))
 
 def github_pull_request(parser, xml_parent, data):
     """yaml: github-pull-request
