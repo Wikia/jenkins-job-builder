@@ -2428,21 +2428,24 @@ def vault(registry, xml_parent, data):
                    'com.datapipe.jenkins.vault.VaultBuildWrapper')
     vault.set('plugin', 'hashicorp-vault-plugin')
 
+    XML.SubElement(vault, 'valuesToMask')
+    XML.SubElement(vault, 'vaultAccessor')
+
     config = XML.SubElement(vault, 'configuration')
     XML.SubElement(config, 'vaultUrl').text = str(data['vault-url'])
     XML.SubElement(config, 'vaultCredentialId').text = str(data['vault-credential-id'])
 
     vaultSecrets = XML.SubElement(vault, 'vaultSecrets')
-    XML.SubElement(vault, 'valuesToMask')
+
     for secret in data['secrets']:
-        vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.VaultSecret')
+        vaultSecret = XML.SubElement(vaultSecrets, 'com.datapipe.jenkins.vault.model.VaultSecret')
         XML.SubElement(vaultSecret, 'path').text = str(secret.get('path'))
         if 'secret-values' in secret:
             secreteValues = XML.SubElement(vaultSecret, 'secretValues')
             for secrete_values in secret['secret-values']:
                 for template, params in secrete_values.items():
                     secret_var = XML.SubElement(secreteValues,
-                                             'com.datapipe.jenkins.vault.VaultSecretValue')
+                                             'com.datapipe.jenkins.vault.model.VaultSecretValue')
                     XML.SubElement(secret_var, 'envVar').text = str(params.get('env-var'))
                     XML.SubElement(secret_var, 'vaultKey').text = str(params.get('vault-key'))
 
