@@ -2404,6 +2404,8 @@ def vault(registry, xml_parent, data):
 
     wrappers:
       - vault:
+          vault-url: "http://example.com"
+          vault-credential-id': "vault-cred-id"
           secrets:
             - path: "/path/to/vault"
               secret-values:
@@ -2425,6 +2427,10 @@ def vault(registry, xml_parent, data):
     vault = XML.SubElement(xml_parent,
                    'com.datapipe.jenkins.vault.VaultBuildWrapper')
     vault.set('plugin', 'hashicorp-vault-plugin')
+
+    config = XML.SubElement(vault, 'configuration')
+    XML.SubElement(config, 'vaultUrl').text = str(data['vault-url'])
+    XML.SubElement(config, 'vaultCredentialId').text = str(data['vault-credential-id'])
 
     vaultSecrets = XML.SubElement(vault, 'vaultSecrets')
     XML.SubElement(vault, 'valuesToMask')
